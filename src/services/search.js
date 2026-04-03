@@ -158,72 +158,60 @@ async function searchAudio(query) {
         const vidUrl = video.url;
         console.log(`🎵 [AUDIO] Found target: ${video.title}. Hunting download link...`);
 
-        // API 0: Maher-Zubair (High Stability)
+        // API 1: Gifted Tech (New Master)
         try {
-            console.log("➡️ Trying API 0: Maher-Zubair...");
-            const res = await fetch(`https://api.maher-zubair.tech/download/ytmp3?url=${vidUrl}`);
+            console.log("➡️ Trying API 1: Gifted Tech...");
+            const res = await fetch(`https://api.giftedtech.my.id/api/download/dlmp3?url=${encodeURIComponent(vidUrl)}&apikey=gifted`);
             if (res.ok) {
                 const data = await res.json();
-                if (data.status === 200 && data.result?.link) {
-                    const bufRes = await fetch(data.result.link);
+                if (data.success && data.result?.download_url) {
+                    const bufRes = await fetch(data.result.download_url);
                     if (bufRes.ok) return Buffer.from(await bufRes.arrayBuffer());
                 }
             }
         } catch (e) { }
 
-        // API 1: BK9
+        // API 2: BK9 Premium
         try {
-            console.log("➡️ Trying API 1: BK9...");
-            const res = await fetch(`https://bk9.fun/download/youtube?url=${vidUrl}`);
+            console.log("➡️ Trying API 2: BK9...");
+            const res = await fetch(`https://bk9.fun/download/youtube?url=${encodeURIComponent(vidUrl)}`);
             if (res.ok) {
                 const data = await res.json();
                 if (data.status && data.BK9?.download?.url) {
-                    const bufRes = await fetch(data.BK9.download.url);
+                    const downloadUrl = data.BK9.download.url;
+                    const bufRes = await fetch(downloadUrl);
                     if (bufRes.ok) return Buffer.from(await bufRes.arrayBuffer());
                 }
             }
         } catch (e) { }
 
-        // API 1: Ryzendesu
+        // API 3: Ryzendesu v2
         try {
-            console.log("➡️ Trying API 1: Ryzendesu...");
-            const res = await fetch(`https://api.ryzendesu.vip/api/downloader/ytmp3?url=${vidUrl}`);
+            console.log("➡️ Trying API 3: Ryzendesu...");
+            const res = await fetch(`https://api.ryzendesu.vip/api/downloader/ytmp3?url=${encodeURIComponent(vidUrl)}`);
             if (res.ok) {
                 const data = await res.json();
-                if (data.url) {
+                if (data.success && data.url) {
                     const bufRes = await fetch(data.url);
                     if (bufRes.ok) return Buffer.from(await bufRes.arrayBuffer());
                 }
             }
         } catch (e) { }
 
-        // API 2: Siputzx
+        // API 4: Siputzx
         try {
-            console.log("➡️ Trying API 2: Siputzx...");
-            const res = await fetch(`https://api.siputzx.my.id/api/d/ytmp3?url=${vidUrl}`);
+            console.log("➡️ Trying API 4: Siputzx...");
+            const res = await fetch(`https://api.siputzx.my.id/api/d/ytmp3?url=${encodeURIComponent(vidUrl)}`);
             if (res.ok) {
                 const data = await res.json();
-                if (data.data?.dl) {
+                if (data.status && data.data?.dl) {
                     const bufRes = await fetch(data.data.dl);
                     if (bufRes.ok) return Buffer.from(await bufRes.arrayBuffer());
                 }
             }
         } catch (e) { }
 
-        // API 3: Agatz
-        try {
-            console.log("➡️ Trying API 3: Agatz...");
-            const res = await fetch(`https://api.agatz.xyz/api/ytmp3?url=${vidUrl}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.data?.dl) {
-                    const bufRes = await fetch(data.data.dl);
-                    if (bufRes.ok) return Buffer.from(await bufRes.arrayBuffer());
-                }
-            }
-        } catch (e) { }
-
-        // LAST RESORT: Cobalt
+        // LAST RESORT: Cobalt (Bypassing CORS/Headers)
         console.log("➡️ Trying LAST RESORT: Cobalt...");
         try {
             const cobaltRes = await fetch("https://api.cobalt.tools/", {
@@ -261,10 +249,23 @@ async function searchVideo(query) {
         const vidUrl = video.url;
         console.log(`🎬 [VIDEO] Found target: ${video.title}. Hunting download link...`);
 
-        // API 0: BK9 (High Reliability)
+        // API 1: Gifted Tech (New Master)
         try {
-            console.log("➡️ Trying API 0: BK9...");
-            const res = await fetch(`https://bk9.fun/download/youtube?url=${vidUrl}`);
+            console.log("➡️ Trying API 1: Gifted Tech...");
+            const res = await fetch(`https://api.giftedtech.my.id/api/download/dlmp4?url=${encodeURIComponent(vidUrl)}&apikey=gifted`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && data.result?.download_url) {
+                    const bufRes = await fetch(data.result.download_url);
+                    if (bufRes.ok) return Buffer.from(await bufRes.arrayBuffer());
+                }
+            }
+        } catch (e) { }
+
+        // API 2: BK9 (High Reliability)
+        try {
+            console.log("➡️ Trying API 2: BK9...");
+            const res = await fetch(`https://bk9.fun/download/youtube?url=${encodeURIComponent(vidUrl)}`);
             if (res.ok) {
                 const data = await res.json();
                 if (data.status && data.BK9?.download?.url) {
@@ -274,52 +275,13 @@ async function searchVideo(query) {
             }
         } catch (e) { }
 
-        // API 0: Maher-Zubair (High Stability)
+        // API 3: Siputzx
         try {
-            console.log("➡️ Trying API 0: Maher-Zubair...");
-            const res = await fetch(`https://api.maher-zubair.tech/download/ytmp4?url=${vidUrl}`);
+            console.log("➡️ Trying API 3: Siputzx...");
+            const res = await fetch(`https://api.siputzx.my.id/api/d/ytmp4?url=${encodeURIComponent(vidUrl)}`);
             if (res.ok) {
                 const data = await res.json();
-                if (data.status === 200 && data.result?.link) {
-                    const bufRes = await fetch(data.result.link);
-                    if (bufRes.ok) return Buffer.from(await bufRes.arrayBuffer());
-                }
-            }
-        } catch (e) { }
-
-        // API 1: BK9
-        try {
-            console.log("➡️ Trying API 1: BK9...");
-            const res = await fetch(`https://bk9.fun/download/youtube?url=${vidUrl}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.status && data.BK9?.download?.url) {
-                    const bufRes = await fetch(data.BK9.download.url);
-                    if (bufRes.ok) return Buffer.from(await bufRes.arrayBuffer());
-                }
-            }
-        } catch (e) { }
-
-        // API 2: Siputzx
-        try {
-            console.log("➡️ Trying API 2: Siputzx...");
-            const res = await fetch(`https://api.siputzx.my.id/api/d/ytmp4?url=${vidUrl}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.data?.dl) {
-                    const bufRes = await fetch(data.data.dl);
-                    if (bufRes.ok) return Buffer.from(await bufRes.arrayBuffer());
-                }
-            }
-        } catch (e) { }
-
-        // API 3: Agatz
-        try {
-            console.log("➡️ Trying API 3: Agatz...");
-            const res = await fetch(`https://api.agatz.xyz/api/ytmp4?url=${vidUrl}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.data?.dl) {
+                if (data.status && data.data?.dl) {
                     const bufRes = await fetch(data.data.dl);
                     if (bufRes.ok) return Buffer.from(await bufRes.arrayBuffer());
                 }

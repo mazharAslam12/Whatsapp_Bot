@@ -1,27 +1,18 @@
-const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+const { searchWebImages } = require("./search");
 
 /**
  * Searches for images using a stable public source.
  * Switches to a more reliable keyword-based image fetch.
  */
 async function searchImages(query, count = 1) {
-    const safeQuery = (query || "random").replace(/[^\w\s]/gi, "").trim();
-    console.log(`🔍 [SYSTEM] Searching for ${count} images: ${safeQuery}`);
-
     try {
-        const results = [];
-        const safeCount = Math.min(Math.max(1, count), 5);
-
-        for (let i = 0; i < safeCount; i++) {
-            const lock = Math.floor(Math.random() * 1000000);
-            // Switched to LoremFlickr as Unsplash Source is deprecated
-            const url = `https://loremflickr.com/1280/720/${encodeURIComponent(safeQuery)}?lock=${lock}`;
-            results.push(url);
-        }
-        return results;
+        return await searchWebImages(query, count);
     } catch (err) {
         console.error("❌ [IMAGE SERVICE] Error during URL generation:", err.message);
-        return [];
+        // Fallback
+        const safeQuery = (query || "random").replace(/[^\w\s]/gi, "").trim();
+        const lock = Math.floor(Math.random() * 1000000);
+        return [`https://loremflickr.com/1280/720/${encodeURIComponent(safeQuery)}?lock=${lock}`];
     }
 }
 

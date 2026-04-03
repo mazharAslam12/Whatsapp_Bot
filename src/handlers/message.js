@@ -63,27 +63,21 @@ function buildMainMenu() {
     return [
         "💎 *Mazhar DevX Elite v2.0*",
         "────────────────────",
-        "🤖 *Mazhar AI (Conversation Memory Enabled)*",
-        "   • Just type: *mazhar <your question>*",
-        "   • *elite ai* – personality check",
+        "🤖 *Elite AI (Autonomous Reasoning)*",
+        "   • *Deep Web Search* – Instant global info",
+        "   • *Code Pulse* – AI reads/writes its own code",
+        "   • *Lead Gen* – Auto-captures project interests",
         "",
         "📂 *File Sandbox*",
-        "   • *fs help* – manage your files",
-        "   • *fs list* – see your sandbox",
+        "   • *fs list* – Manage your private files",
         "",
         "🎵 *Entertainment*",
-        "   • *song <name>* / *video <name>*",
-        "   • *image <query>* – web search",
+        "   • *song <name>* – HQ MP3 Download",
+        "   • *video <name>* – HQ MP4 Download",
+        "   • *image <query>* – Dynamic web search",
         "",
         "📊 *System & Stats*",
-        "   • *status* – see online users",
-        "   • *stats* – your chat history",
-        "   • *gallery* – see media stats",
-        "   • *health* – system performance",
-        "",
-        "💡 *Fun & Info*",
-        "   • *joke* / *quote* / *time*",
-        "   • */premium* – about Mazhar.DevX",
+        "   • *status* / *stats* / *health*",
         "",
         "👑 *Owner*: mazhar.devx",
         "────────────────────",
@@ -596,8 +590,15 @@ async function handleMessage(sock, msg) {
         console.log(`💎 [AI REPLY] ${cleanReply.substring(0, 100)}...`);
 
 
-        // 3. Anti-Repetition Shield (Hard Block for "OMG" loops)
-        if (cleanReply === prompt && cleanReply.length < 5) {
+        // 3. Anti-Repetition Shield (Hard Block for strict loops)
+        // Check if raw stripped reply is exactly the user's prompt OR if the memory already had this exact response recently
+        const recentMemory = conversationMemory.get(sender) || [];
+        const lastAsstMsg = recentMemory.slice().reverse().find(m => m.role === 'assistant');
+        if (lastAsstMsg && lastAsstMsg.content && lastAsstMsg.content.includes(cleanReply.substring(0, 30)) && cleanReply.length > 5) {
+             console.log("🛑 [ANTI-ECHO] Caught repetitive loop. Dropping response.");
+             // Return blank text to prevent infinite loops of the same response
+             cleanReply = "Jani, mazeed specifics batao! 😂";
+        } else if (cleanReply === prompt && cleanReply.length < 5) {
             cleanReply = "Jani, kuch aur bolo, repeat mat karo! 😂";
         }
 
@@ -611,8 +612,8 @@ async function handleMessage(sock, msg) {
         // --- 🎯 MUTUALLY EXCLUSIVE TRIGGERS (Priority Ordering) ---
 
         // 0. DEEP RESEARCH (The Intelligent Core)
-        if (cleanReply.includes("[DEEP_RESEARCH:")) {
-            const match = cleanReply.match(/\[DEEP_RESEARCH:\s*(.*?)\]/i);
+        if (cleanReply.includes("[WEB_SEARCH:") || cleanReply.includes("[DEEP_RESEARCH:")) {
+            const match = cleanReply.match(/\[(?:WEB_SEARCH|DEEP_RESEARCH):\s*(.*?)\]/i);
             if (match) {
                 const query = match[1].trim();
                 const { performResearch } = require("../services/search");
@@ -652,6 +653,35 @@ async function handleMessage(sock, msg) {
             }
         }
 
+        // --- CODE READING/WRITING TRIGGERS ---
+        if (cleanReply.includes("[READ_CODE:")) {
+            const match = cleanReply.match(/\[READ_CODE:\s*(.*?)\]/i);
+            if (match) {
+                const filePath = match[1].trim();
+                const { readCode } = require("../services/code");
+                const result = await readCode(filePath);
+                // Report back to AI via internal recursive call secretly, or just push text 
+                // We'll give it the code and ask it to report back to user
+                const analysisPrompt = `Here is the requested code for ${filePath}:\n${result}\nNow, reply to the user naturally about what you found or any improvements you noticed.`;
+                const finalReply = await mazharAiReply(analysisPrompt, sender, "System_CodeReader");
+                await safeSendMessage(sock, sender, { text: finalReply.trim() }, { quoted: msg });
+                return;
+            }
+        }
+
+        if (cleanReply.includes("[WRITE_CODE:")) {
+            const match = cleanReply.match(/\[WRITE_CODE:\s*(.*?)\s*\|\s*([\s\S]*?)\]/i);
+            if (match) {
+                const filePath = match[1].trim();
+                const newContent = match[2].trim();
+                const { writeCode } = require("../services/code");
+                const result = await writeCode(filePath, newContent);
+                console.log(`⚠️ [DANGEROUS FILE EDIT] ${filePath} modified.`);
+                await safeSendMessage(sock, sender, { text: `✅ File \`${filePath}\` updated by AI! Result: ${result}` }, { quoted: msg });
+                return;
+            }
+        }
+
         // --- [HALLUCINATION SHIELD v49.0] ---
         // Convert any fake [FILE:] or [PATH:] tags into real triggers automatically
         cleanReply = cleanReply.replace(/\[FILE:.*?\/sharegif\/(.*?)\.gif\]/gi, "[GIF: $1]");
@@ -676,10 +706,23 @@ async function handleMessage(sock, msg) {
 
         // Clean EVERYTHING into a final text body
         let finalCaption = cleanReply
-            .replace(/\[(GIF|IMG_SEARCH|VID_SEARCH|SONG_SEARCH|VIDEO_DOWNLOAD|DEEP_RESEARCH|AI_STOP|TRIGGER_NOTIFY_OWNER_OFFLINE|TRIGGER_SEND_USER_PROFILE_PIC|TRIGGER_SEND_REAL_OWNER_PHOTO|REACTION|PDF_CONTENT):\s*.*?\]/gi, "")
+            .replace(/\[(GIF|IMG_SEARCH|VID_SEARCH|SONG_SEARCH|VIDEO_DOWNLOAD|WEB_SEARCH|READ_CODE|WRITE_CODE|NEW_LEAD|DEEP_RESEARCH|AI_STOP|TRIGGER_NOTIFY_OWNER_OFFLINE|TRIGGER_SEND_USER_PROFILE_PIC|TRIGGER_SEND_REAL_OWNER_PHOTO|REACTION|PDF_CONTENT):\s*.*?\]/gi, "")
+            .replace(/\[(TRIGGER_SEND_USER_PROFILE_PIC|TRIGGER_SEND_REAL_OWNER_PHOTO)\]/gi, "")
             .replace(/【.*?】/g, "")
             .replace(/\[NEW_LEAD:.*?\]/gi, "")
             .trim();
+
+        // --- LEAD GATHERING TRIGGER ---
+        if (cleanReply.includes("[NEW_LEAD:")) {
+            const match = cleanReply.match(/\[NEW_LEAD:\s*(.*?)\s*\|\s*(.*?)\]/i);
+            if (match) {
+                const lName = match[1].trim();
+                const lProject = match[2].trim();
+                const { addLead } = require("../services/leads");
+                await addLead(sender, lName, lProject);
+                console.log(`💼 [LEAD] Extracted: ${lName} - ${lProject}`);
+            }
+        }
 
         // 0. Profile Mirror
         if (triggersFound.profileMirror) {
