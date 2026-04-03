@@ -3,21 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mazhar DevX • Elite Control Center</title>
+    <title>Mazhar DevX • Elite Control Center v2.0</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <style>
         :root {
-            --bg: #050505;
+            --bg: #030303;
             --primary: #00f2fe;
             --secondary: #4facfe;
             --accent: #7f00ff;
-            --card: rgba(255, 255, 255, 0.03);
-            --border: rgba(255, 255, 255, 0.08);
+            --card: rgba(255, 255, 255, 0.02);
+            --border: rgba(255, 255, 255, 0.06);
             --text: #ffffff;
-            --muted: #888899;
+            --muted: #777788;
             --whatsapp: #25d366;
-            --ai-glow: rgba(0, 242, 254, 0.2);
+            --danger: #ff4b2b;
+            --glow: rgba(0, 242, 254, 0.3);
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', sans-serif; }
@@ -26,342 +27,300 @@
             color: var(--text);
             height: 100vh;
             display: flex;
+            flex-direction: column;
             overflow: hidden;
             background-image: 
-                radial-gradient(circle at 0% 0%, rgba(0, 242, 254, 0.05), transparent 40%),
-                radial-gradient(circle at 100% 100%, rgba(127, 0, 255, 0.05), transparent 40%);
+                radial-gradient(circle at 10% 10%, rgba(0, 242, 254, 0.05), transparent 40%),
+                radial-gradient(circle at 90% 90%, rgba(127, 0, 255, 0.05), transparent 40%);
         }
 
-        /* Layout */
+        /* Nav Bar - Bottom on Mobile, Side on Desktop */
+        .app-shell { display: flex; flex: 1; height: calc(100vh - 60px); }
+
+        .navbar-mobile {
+            height: 70px;
+            background: rgba(255,255,255,0.01);
+            backdrop-filter: blur(20px);
+            border-top: 1px solid var(--border);
+            display: none;
+            justify-content: space-around;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .nav-item { cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--muted); transition: 0.3s; font-size: 0.75rem; font-weight: 700; opacity: 0.6; }
+        .nav-item.active { color: var(--primary); opacity: 1; text-shadow: 0 0 10px var(--glow); }
+
+        /* Sidebar - Desktop */
         .sidebar {
             width: 320px;
             border-right: 1px solid var(--border);
             display: flex;
             flex-direction: column;
-            padding: 30px;
+            padding: 40px 30px;
             background: rgba(255, 255, 255, 0.01);
-            backdrop-filter: blur(10px);
-        }
-
-        .main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background: rgba(0, 0, 0, 0.2);
-        }
-
-        .right-panel {
-            width: 350px;
-            border-left: 1px solid var(--border);
-            padding: 30px;
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-            overflow-y: auto;
-        }
-
-        /* Typography */
-        .brand { font-size: 1.8rem; font-weight: 800; background: linear-gradient(to right, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 5px; }
-        .tagline { font-size: 0.7rem; letter-spacing: 2px; color: var(--muted); font-weight: 600; margin-bottom: 40px; }
-
-        /* Components */
-        .status-box {
-            padding: 15px;
-            border-radius: 16px;
-            background: var(--card);
-            border: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 30px;
-        }
-        .dot { width: 10px; height: 10px; border-radius: 50%; background: #ff4b2b; box-shadow: 0 0 15px #ff4b2b; transition: 0.3s; }
-        .dot.online { background: var(--primary); box-shadow: 0 0 15px var(--primary); }
-
-        /* Feed */
-        .feed-header {
-            padding: 30px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .feed-container {
-            flex: 1;
-            overflow-y: auto;
-            padding: 30px;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-
-        /* Message Cards */
-        .msg-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            padding: 20px;
-            max-width: 85%;
-            position: relative;
-            animation: slideUp 0.4s cubic-bezier(0.23, 1, 0.32, 1);
-        }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        
-        .msg-card.ai { align-self: flex-end; border-left: 4px solid var(--primary); background: rgba(0, 242, 254, 0.02); }
-        .msg-card.whatsapp { align-self: flex-start; border-left: 4px solid var(--whatsapp); }
-
-        .msg-header { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.75rem; }
-        .user-name { font-weight: 800; color: var(--primary); }
-        .user-phone { color: var(--muted); font-family: monospace; }
-        .msg-body { font-size: 0.95rem; line-height: 1.6; color: rgba(255,255,255,0.9); }
-        .msg-footer { margin-top: 12px; font-size: 0.65rem; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
-
-        /* Media Display */
-        .media-container { margin-top: 15px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); }
-        .media-container img, .media-container video { width: 100%; display: block; max-height: 300px; object-fit: cover; }
-
-        /* Reply System */
-        .reply-box {
-            padding: 20px 30px;
-            background: rgba(0,0,0,0.5);
-            border-top: 1px solid var(--border);
-            display: flex;
-            gap: 15px;
             backdrop-filter: blur(20px);
         }
-        .reply-input {
-            flex: 1;
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 12px 20px;
-            color: #fff;
-            outline: none;
-        }
-        .btn-send {
-            background: var(--primary);
-            color: #000;
-            border: none;
-            padding: 0 25px;
-            border-radius: 12px;
-            font-weight: 800;
-            cursor: pointer;
-            transition: 0.2s;
-        }
-        .btn-send:hover { transform: scale(1.05); box-shadow: 0 0 20px var(--primary); }
 
-        /* AI Prompt Box */
-        .prompt-editor {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            padding: 20px;
-        }
-        .prompt-input {
-            width: 100%;
-            height: 120px;
-            background: rgba(0,0,0,0.3);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 12px;
-            color: #ccc;
-            font-size: 0.85rem;
-            resize: none;
-            outline: none;
-            margin-top: 10px;
-        }
+        .main-view { flex: 1; display: flex; flex-direction: column; background: rgba(0,0,0,0.2); width: 100%; position: relative; }
 
-        /* QR View */
-        .qr-card {
-            background: #fff;
-            padding: 15px;
-            border-radius: 16px;
-            text-align: center;
-        }
-        .qr-card img { width: 100%; border-radius: 8px; }
+        /* Content Sections */
+        .section { display: none; flex: 1; flex-direction: column; height: 100%; overflow: hidden; }
+        .section.active { display: flex; }
 
-        /* Responsive */
-        @media (max-width: 1000px) {
-            .sidebar, .right-panel { display: none; }
+        /* Typography */
+        .brand { font-size: 2rem; font-weight: 800; background: linear-gradient(to right, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 5px; }
+        .platform-label { font-size: 0.65rem; letter-spacing: 3px; color: var(--muted); font-weight: 800; margin-bottom: 40px; }
+
+        /* Status & Telemetry */
+        .status-card { background: var(--card); border: 1px solid var(--border); padding: 20px; border-radius: 24px; margin-bottom: 24px; }
+        .stat-row { display: flex; justify-content: space-between; font-size: 0.75rem; margin-top: 12px; font-weight: 600; }
+        .stat-val { color: var(--primary); font-family: monospace; }
+        
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 10px var(--danger); transition: 0.3s; }
+        .dot.online { background: var(--primary); box-shadow: 0 0 10px var(--primary); }
+
+        /* Feed */
+        .feed-scroll { flex: 1; overflow-y: auto; padding: 30px; display: flex; flex-direction: column; gap: 20px; }
+        .msg-bubble { background: var(--card); border: 1px solid var(--border); padding: 20px; border-radius: 20px; max-width: 90%; animation: pop 0.4s cubic-bezier(0.23, 1, 0.32, 1); }
+        @keyframes pop { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        
+        .msg-bubble.ai { align-self: flex-end; border-right: 4px solid var(--primary); }
+        .msg-bubble.whatsapp { align-self: flex-start; border-left: 4px solid var(--whatsapp); cursor: pointer; }
+
+        /* Reply Interface */
+        .console-input { padding: 20px 30px; background: rgba(0,0,0,0.6); border-top: 1px solid var(--border); display: flex; gap: 15px; position: sticky; bottom: 0; backdrop-filter: blur(20px); }
+        .input-pill { flex: 1; background: var(--card); border: 1px solid var(--border); padding: 14px 24px; border-radius: 16px; color: #fff; outline: none; transition: 0.3s; }
+        .input-pill:focus { border-color: var(--primary); background: rgba(255,255,255,0.05); }
+
+        /* QR Auth Overlays */
+        .auth-overlay {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000;
+            display: none; align-items: center; justify-content: center; backdrop-filter: blur(15px);
+        }
+        .auth-card { background: #fff; padding: 25px; border-radius: 30px; text-align: center; max-width: 320px; color: #000; }
+        .auth-card img { width: 100%; border-radius: 12px; margin-bottom: 20px; border: 1px solid #ddd; }
+
+        /* Settings Panels */
+        .settings-view { padding: 40px; display: flex; flex-direction: column; gap: 30px; }
+        .setting-group { background: var(--card); border: 1px solid var(--border); padding: 24px; border-radius: 24px; }
+        .setting-desc { font-size: 0.8rem; color: var(--muted); margin-bottom: 20px; }
+        .text-area { width: 100%; height: 150px; background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 16px; padding: 15px; color: #fff; font-size: 0.9rem; resize: none; margin-bottom: 15px; outline: none; }
+
+        /* Media */
+        .media-box { margin-top: 15px; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); }
+        .media-box img, .media-box video { width: 100%; display: block; max-height: 400px; object-fit: contain; }
+
+        /* Utils */
+        .btn { padding: 12px 25px; border-radius: 12px; font-weight: 800; cursor: pointer; border: none; transition: 0.2s; white-space: nowrap; }
+        .btn-primary { background: var(--primary); color: #000; }
+        .btn-ghost { background: var(--card); border: 1px solid var(--border); color: #fff; }
+
+        @media (max-width: 900px) {
+            .sidebar { display: none; }
+            .navbar-mobile { display: flex; }
+            .app-shell { height: calc(100vh - 70px); }
+            .msg-bubble { max-width: 95%; }
         }
     </style>
 </head>
 <body>
-    <!-- Sidebar -->
-    <aside class="sidebar">
-        <div class="brand">Mazhar DevX</div>
-        <div class="tagline">ELITE CONTROL CENTER</div>
+    <div class="app-shell">
+        <!-- Sidebar - Desktop -->
+        <aside class="sidebar">
+            <div class="brand">Mazhar DevX</div>
+            <div class="platform-label">ELITE MASTER CONTROL</div>
 
-        <div class="status-box">
-            <div id="status-dot" class="dot"></div>
-            <div>
-                <div style="font-size:0.7rem; color:var(--muted); font-weight:700">SYSTEM STATUS</div>
-                <div id="status-text" style="font-size:0.9rem; font-weight:800">CONNECTING...</div>
+            <div class="status-card">
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
+                    <div id="dot" class="dot"></div>
+                    <div id="status-text" style="font-weight:800; font-size:0.9rem">DISCONNECTED</div>
+                </div>
+                <div class="stat-row"><span>Uptime</span><span class="stat-val" id="uptime">0m</span></div>
+                <div class="stat-row"><span>Memory</span><span class="stat-val" id="rss">0MB</span></div>
+                <div class="stat-row"><span>Heap</span><span class="stat-val" id="heap">0MB</span></div>
             </div>
-        </div>
 
-        <div id="qr-container" style="display:none">
-            <h3 style="font-size:0.8rem; letter-spacing:1px; margin-bottom:15px; color:var(--primary)">AUTHENTICATION</h3>
-            <div class="qr-card">
-                <img id="qr-img" src="/qr-img">
+            <nav style="display:flex; flex-direction:column; gap:12px;">
+                <div class="nav-item active" onclick="switchView('feed')">📡 Live Operational Feed</div>
+                <div class="nav-item" onclick="switchView('settings')">🧠 AI Mind Dynamics</div>
+                <div class="nav-item" onclick="switchView('auth')" id="nav-auth" style="display:none">🔐 Authentication Required</div>
+            </nav>
+
+            <button onclick="logout()" style="margin-top:auto; padding:15px; border-radius:14px; background:rgba(255,0,0,0.05); border:1px solid rgba(255,0,0,0.1); color:var(--danger); cursor:pointer; font-weight:800">Destroy Session</button>
+        </aside>
+
+        <main class="main-view">
+            <!-- Auth Overlay (Forced Logic) -->
+            <div id="auth-overlay" class="auth-overlay">
+                <div class="auth-card">
+                    <h3 style="margin-bottom:10px; font-weight:800">SESSION EXPIRED</h3>
+                    <p style="font-size:0.8rem; color:#666; margin-bottom:20px">Please scan this QR code in WhatsApp Linked Devices.</p>
+                    <img id="qr-img" src="/qr-img">
+                    <button class="btn btn-primary" style="width:100%" onclick="window.location.href='/download-qr'">Download QR</button>
+                    <p style="margin-top:10px; font-size:0.7rem; color:var(--danger); font-weight:700">Awaiting Connection...</p>
+                </div>
             </div>
-            <a href="/download-qr" style="display:block; text-align:center; margin-top:15px; color:var(--primary); font-size:0.8rem; text-decoration:none">Download QR Image</a>
-        </div>
 
-        <div style="margin-top:auto">
-            <button id="btn-nuke" style="width:100%; padding:15px; border-radius:12px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,0,0,0.05); color:#ff4b2b; cursor:pointer; font-weight:700">Terminate Session</button>
-        </div>
-    </aside>
+            <!-- Sections -->
+            <section id="view-feed" class="section active">
+                <header style="padding:30px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                    <h2 style="font-size:1.4rem; font-weight:800">Operational Log</h2>
+                    <span id="msg-count" style="font-size:0.75rem; color:var(--muted); font-weight:700">0 INTERACTIONS DETECTED</span>
+                </header>
+                <div id="feed" class="feed-scroll">
+                    <div style="text-align:center; padding:100px; color:var(--muted)">Initialize bot to view live traffic...</div>
+                </div>
+                <div class="console-input">
+                    <input type="text" id="reply-input" class="input-pill" placeholder="Select a message to reply...">
+                    <button id="btn-send" class="btn btn-primary">SEND BYPASS</button>
+                </div>
+            </section>
 
-    <!-- Main Live Feed -->
-    <main class="main-content">
-        <header class="feed-header">
-            <div>
-                <h2 style="font-size:1.2rem; font-weight:800">Operational Log</h2>
-                <div id="msg-count" style="font-size:0.7rem; color:var(--muted)">0 INTERACTIONS DETECTED</div>
-            </div>
-            <div style="display:flex; gap:10px">
-                <div style="padding:5px 12px; border-radius:20px; background:rgba(0,242,254,0.1); color:var(--primary); font-size:0.7rem; font-weight:800">REAL-TIME</div>
-            </div>
-        </header>
+            <section id="view-settings" class="section">
+                 <div class="settings-view">
+                    <div class="setting-group">
+                        <h3 style="font-weight:800; color:var(--primary); margin-bottom:10px">👑 AI DYNAMICS COMMAND</h3>
+                        <p class="setting-desc">Inject high-level behavioral directives into the AI's core logic in real-time.</p>
+                        <textarea id="prompt-input" class="text-area" placeholder="e.g. Talk like a CEO, only answer in English, be very professional..."></textarea>
+                        <button class="btn btn-ghost" style="width:100%" onclick="updateAI()">Update Mindset</button>
+                    </div>
 
-        <div id="feed" class="feed-container">
-            <div style="text-align:center; padding:100px; color:var(--muted); font-size:0.9rem">
-                Initialize session and scan QR to view stream...
-            </div>
-        </div>
+                    <div class="setting-group">
+                        <h3 style="font-weight:800; color:var(--primary); margin-bottom:10px">📊 SYSTEM TELEMETRY</h3>
+                        <p class="setting-desc">Real-time performance monitoring and infrastructure health.</p>
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:15px">
+                            <div style="background:rgba(0,0,0,0.2); padding:15px; border-radius:12px; border:1px solid var(--border)">
+                                <div style="font-size:0.7rem; color:var(--muted)">SOCKET STATUS</div>
+                                <div style="font-weight:800; color:var(--primary)">AES-256 ACTIVE</div>
+                            </div>
+                            <div style="background:rgba(0,0,0,0.2); padding:15px; border-radius:12px; border:1px solid var(--border)">
+                                <div style="font-size:0.7rem; color:var(--muted)">TRAFFIC ENGINE</div>
+                                <div style="font-weight:800; color:var(--primary)">VITA FLOW</div>
+                            </div>
+                        </div>
+                    </div>
+                 </div>
+            </section>
+        </main>
+    </div>
 
-        <div class="reply-box">
-            <input type="text" id="reply-input" class="reply-input" placeholder="Type a reply to the selected user...">
-            <button id="btn-send" class="btn-send">SEND REPLY</button>
-        </div>
-    </main>
-
-    <!-- Right Control Panel -->
-    <aside class="right-panel">
-        <div class="prompt-editor">
-            <h3 style="font-size:0.9rem; font-weight:800; color:var(--primary)">🧠 AI DYNAMICS</h3>
-            <p style="font-size:0.7rem; color:var(--muted); margin-top:5px">Control how the AI thinks and responds to users live.</p>
-            <textarea id="prompt-input" class="prompt-input" placeholder="Example: Only answer in short tech terms..."></textarea>
-            <button id="btn-update-prompt" style="width:100%; padding:10px; margin-top:10px; border-radius:8px; border:none; background:var(--card); border:1px solid var(--border); color:#fff; cursor:pointer; font-size:0.75rem; font-weight:700">APPLY MINDSET</button>
-        </div>
-
-        <div style="background:var(--card); padding:20px; border-radius:20px; border:1px solid var(--border)">
-             <h3 style="font-size:0.9rem; font-weight:800; color:var(--primary)">📊 TELEMETRY</h3>
-             <div style="margin-top:15px; display:flex; flex-direction:column; gap:10px">
-                 <div style="display:flex; justify-content:space-between; font-size:0.8rem"><span color="var(--muted)">Socket Engine</span><span style="color:var(--primary)">Active</span></div>
-                 <div style="display:flex; justify-content:space-between; font-size:0.8rem"><span color="var(--muted)">Encryption</span><span style="color:var(--primary)">AES-256</span></div>
-                 <div style="display:flex; justify-content:space-between; font-size:0.8rem"><span color="var(--muted)">Railway URL</span><span style="color:var(--primary)">Detected</span></div>
-             </div>
-        </div>
-    </aside>
+    <!-- Mobile Nav -->
+    <nav class="navbar-mobile">
+        <div class="nav-item active" id="m-feed" onclick="switchView('feed')"><span>Feed</span></div>
+        <div class="nav-item" id="m-settings" onclick="switchView('settings')"><span>Control</span></div>
+        <div class="nav-item" id="m-auth" onclick="toggleAuthMobile()" style="display:none; color:var(--primary)"><span>Auth</span></div>
+    </nav>
 
     <script>
         const socket = io();
         const feed = document.getElementById('feed');
-        const statusDot = document.getElementById('status-dot');
-        const statusText = document.getElementById('status-text');
-        const qrContainer = document.getElementById('qr-container');
+        const overlay = document.getElementById('auth-overlay');
         const replyInput = document.getElementById('reply-input');
         const btnSend = document.getElementById('btn-send');
-        const promptInput = document.getElementById('prompt-input');
-        const btnUpdatePrompt = document.getElementById('btn-update-prompt');
-        const msgCount = document.getElementById('msg-count');
-        const btnNuke = document.getElementById('btn-nuke');
+        let currentJid = null;
+        let msgTotal = 0;
 
-        let lastInteractedJid = null;
-        let count = 0;
+        function switchView(view) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.getElementById('view-' + view).classList.add('active');
+            
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            if(window.innerWidth <= 900) {
+               document.getElementById('m-' + view).classList.add('active');
+            }
+        }
 
         socket.on('connect_status', (data) => {
-            if (data.status === 'online') {
-                statusDot.classList.add('online');
-                statusText.innerText = 'OPERATIONAL';
-                qrContainer.style.display = 'none';
-            } else {
-                statusDot.classList.remove('online');
-                statusText.innerText = 'DISCONNECTED';
-                qrContainer.style.display = 'block';
-            }
+            const isOnline = data.status === 'online' || data.status === 'connected';
+            document.getElementById('dot').className = 'dot ' + (isOnline ? 'online' : '');
+            document.getElementById('status-text').innerText = isOnline ? 'OPERATIONAL' : 'DISCONNECTED';
+            overlay.style.display = isOnline ? 'none' : 'flex';
+            document.getElementById('nav-auth').style.display = isOnline ? 'none' : 'flex';
+            document.getElementById('m-auth').style.display = isOnline ? 'none' : 'flex';
+        });
+
+        socket.on('telemetry', (data) => {
+            ['rss', 'heap', 'uptime'].forEach(key => {
+                const el = document.getElementById(key);
+                if(el) el.innerText = data[key];
+            });
         });
 
         socket.on('new_message', (data) => {
-            if (count === 0) feed.innerHTML = '';
-            count++;
-            msgCount.innerText = count + ' INTERACTIONS DETECTED';
+            if (msgTotal === 0) feed.innerHTML = '';
+            msgTotal++;
+            document.getElementById('msg-count').innerText = msgTotal + ' INTERACTIONS DETECTED';
 
-            const card = document.createElement('div');
-            card.className = `msg-card ${data.role}`;
+            const bubble = document.createElement('div');
+            bubble.className = `msg-bubble ${data.role}`;
             
-            // Interaction logic
             if (data.role === 'whatsapp') {
-                lastInteractedJid = data.jid;
-                card.style.cursor = 'pointer';
-                card.title = 'Click to reply to this user';
-                card.onclick = () => {
-                   lastInteractedJid = data.jid;
-                   replyInput.placeholder = `Replying to ${data.senderName}...`;
-                   replyInput.focus();
+                bubble.onclick = () => {
+                    currentJid = data.jid;
+                    replyInput.placeholder = `Replying to ${data.senderName}...`;
+                    replyInput.focus();
                 };
             }
 
-            let mediaHtml = '';
+            let media = '';
             if (data.media) {
-                if (data.media.type === 'image') {
-                    mediaHtml = `<div class="media-container"><img src="${data.media.url}"></div>`;
-                } else if (data.media.type === 'video') {
-                    mediaHtml = `<div class="media-container"><video src="${data.media.url}" controls></video></div>`;
-                }
+                if (data.media.type === 'image') media = `<div class="media-box"><img src="${data.media.url}"></div>`;
+                else if (data.media.type === 'video') media = `<div class="media-box"><video src="${data.media.url}" controls></video></div>`;
             }
 
-            card.innerHTML = `
-                <div class="msg-header">
-                    <span class="user-name">${data.role === 'ai' ? '🤖 MAZHAR AI' : data.senderName}</span>
-                    <span class="user-phone">${data.senderNumber || ''}</span>
+            bubble.innerHTML = `
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.7rem">
+                    <span style="font-weight:800; color:var(--primary)">${data.role === 'ai' ? '🤖 MAZHAR AI' : data.senderName}</span>
+                    <span style="color:var(--muted)">${data.senderNumber || ''}</span>
                 </div>
-                <div class="msg-body">${data.text || '<i>[Media File]</i>'}</div>
-                ${mediaHtml}
-                <div class="msg-footer">
+                <div style="font-size:0.95rem; line-height:1.6">${data.text || '<i>[Media File Received]</i>'}</div>
+                ${media}
+                <div style="margin-top:10px; font-size:0.6rem; color:var(--muted); display:flex; justify-content:space-between">
                     <span>${new Date().toLocaleTimeString()}</span>
-                    <span style="opacity:0.4">${data.role === 'whatsapp' ? '✓ Received' : '✓ Delivered'}</span>
+                    <span style="opacity:0.5">${data.role === 'whatsapp' ? 'Verified Inbound' : 'Verified Outbound'}</span>
                 </div>
             `;
-            feed.prepend(card);
+            feed.prepend(bubble);
         });
 
         btnSend.onclick = () => {
             const text = replyInput.value.trim();
-            if (!text || !lastInteractedJid) return alert('Select a user and type a message!');
+            if(!text || !currentJid) return alert('Select a user message to reply.');
+            socket.emit('admin_reply', { jid: currentJid, text });
             
-            socket.emit('admin_reply', { jid: lastInteractedJid, text });
-            
-            // Add to feed locally as "admin"
-            const card = document.createElement('div');
-            card.className = 'msg-card ai';
-            card.innerHTML = `
-                 <div class="msg-header"><span class="user-name">👑 ADMIN BYPASS</span></div>
-                 <div class="msg-body">${text}</div>
-                 <div class="msg-footer"><span>${new Date().toLocaleTimeString()}</span><span>✓ Sent</span></div>
+            // Add local bubble
+            const bubble = document.createElement('div');
+            bubble.className = 'msg-bubble ai';
+            bubble.innerHTML = `
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.7rem">
+                    <span style="font-weight:800; color:var(--primary)">👑 ADMIN BYPASS</span>
+                </div>
+                <div style="font-size:0.95rem; line-height:1.6">${text}</div>
+                 <div style="margin-top:10px; font-size:0.6rem; color:var(--muted)"><span>Just Now</span></div>
             `;
-            feed.prepend(card);
+            feed.prepend(bubble);
             replyInput.value = '';
         };
 
-        btnUpdatePrompt.onclick = () => {
-            const prompt = promptInput.value.trim();
+        function updateAI() {
+            const prompt = document.getElementById('prompt-input').value.trim();
             socket.emit('update_ai_prompt', { prompt });
-            alert('AI mindset updated successfully. All future responses will adapt to this directive.');
-        };
+            alert('AI Mindset Reconfigured Successfully.');
+        }
 
-        btnNuke.onclick = () => {
-            if (confirm('Critical: Terminate session and clear all authentication?')) {
-                socket.emit('nuke_session');
-            }
-        };
+        function logout() {
+            if(confirm('Terminate operational session?')) socket.emit('nuke_session');
+        }
 
         socket.on('qr_update', () => {
-            const qrImg = document.getElementById('qr-img');
-            qrImg.src = '/qr-img?t=' + Date.now();
+            document.getElementById('qr-img').src = '/qr-img?t=' + Date.now();
+            overlay.style.display = 'flex';
         });
+
+        function toggleAuthMobile() {
+            overlay.style.display = (overlay.style.display === 'flex' ? 'none' : 'flex');
+        }
     </script>
 </body>
 </html>

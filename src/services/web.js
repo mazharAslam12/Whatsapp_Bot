@@ -78,6 +78,18 @@ function startWebServer() {
         socket.on("update_ai_prompt", (data) => {
             setAdminPrompt(data.prompt);
         });
+
+        // Periodic Telemetry
+        const telemetryTimer = setInterval(() => {
+            const mem = process.memoryUsage();
+            socket.emit("telemetry", {
+                rss: (mem.rss / 1024 / 1024).toFixed(1) + "MB",
+                heap: (mem.heapUsed / 1024 / 1024).toFixed(1) + "MB",
+                uptime: Math.floor(process.uptime() / 60) + "m"
+            });
+        }, 5000);
+
+        socket.on("disconnect", () => clearInterval(telemetryTimer));
     });
 
     // Listen to Global Events
