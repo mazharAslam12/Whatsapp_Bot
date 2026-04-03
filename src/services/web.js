@@ -3,6 +3,8 @@ const fs = require("fs");
 const path = require("path");
 const { Server } = require("socket.io");
 const events = require("../lib/events");
+const { setAdminPrompt } = require("./ai");
+
 
 const PORT = process.env.PORT || 8080;
 const QR_PATH = path.join(process.cwd(), "user_files", "login-qr.png");
@@ -38,6 +40,16 @@ function startWebServer() {
                 res.writeHead(404, { "Content-Type": "text/plain" });
                 res.end("Dashboard file missing.");
             }
+        } else if (req.url.startsWith("/media/")) {
+            const fileName = req.url.split("/").pop();
+            const filePath = path.join(process.cwd(), "user_files", fileName);
+            if (fs.existsSync(filePath)) {
+                res.writeHead(200);
+                fs.createReadStream(filePath).pipe(res);
+            } else {
+                res.writeHead(404);
+                res.end("Media not found");
+            }
         }
     });
 
@@ -57,11 +69,20 @@ function startWebServer() {
                  process.exit(0); // Exit so Railway/PM2 restarts the bot fresh
             }
         });
+
+        socket.on("admin_reply", (data) => {
+            console.log(`📩 [DASHBOARD] Replying to ${data.jid}: ${data.text}`);
+            events.emit("send_whatsapp", data);
+        });
+
+        socket.on("update_ai_prompt", (data) => {
+            setAdminPrompt(data.prompt);
+        });
     });
 
     // Listen to Global Events
-    events.on("wa_message", (data) => io.emit("new_message", { role: "whatsapp", text: data.text }));
-    events.on("ai_reply", (data) => io.emit("new_message", { role: "ai", text: data.text }));
+    events.on("wa_message", (data) => io.emit("new_message", { role: "whatsapp", ...data }));
+    events.on("ai_reply", (data) => io.emit("new_message", { role: "ai", ...data }));
     events.on("wa_status", (status) => io.emit("connect_status", { status }));
     events.on("wa_qr", () => io.emit("qr_update"));
 

@@ -9,6 +9,8 @@ const conversationMemory = new Map();
 const stopAiStatus = new Map(); // { jid: untilTime }
 const MAX_MEMORY_LENGTH = 15;
 const HISTORY_DIR = path.join(__dirname, "../../user_files");
+let adminCustomPrompt = ""; // Dynamic prompt from dashboard
+
 
 async function getOrInitMemory(senderJid, userName) {
     if (conversationMemory.has(senderJid)) {
@@ -63,7 +65,9 @@ async function getOrInitMemory(senderJid, userName) {
             "4. NO REPETITION (CRITICAL): NEVER repeat what you just said. Keep evolving. State text directly without narrating.\n" +
             "5. WEB INTELLIGENCE: If someone asks about the news, an unknown API, or tech developments, trigger `[WEB_SEARCH: your query]` instantly.\n" +
             "6. NO HALLUCINATIONS: NEVER use `[FILE: /path/...]` tags.\n" +
-            "7. CONVERSATION FLOW: Keep it short, human, ultra professional, and direct."
+            "7. CONVERSATION FLOW: Keep it short, human, ultra professional, and direct.\n" +
+            "8. BREVITY: Give short, concise answers. Avoid long paragraphs unless explicitly asked.\n" +
+            (adminCustomPrompt ? `\n👑 ADMIN DIRECTIVE: ${adminCustomPrompt}` : "")
     };
 
     if (memory.length > 0 && memory[0].role === "system") {
@@ -454,4 +458,9 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
     }
 }
 
-module.exports = { mazharAiReply, transcribeVoice, stopAiStatus };
+function setAdminPrompt(prompt) {
+    adminCustomPrompt = prompt;
+    console.log("📝 [AI] System Prompt Updated: " + (prompt || "Default"));
+}
+
+module.exports = { mazharAiReply, transcribeVoice, stopAiStatus, setAdminPrompt };

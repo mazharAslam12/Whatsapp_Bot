@@ -91,28 +91,53 @@ async function handleMessage(sock, msg) {
     try {
         if (!msg.message || msg.key.fromMe) return;
         const msgType = Object.keys(msg.message)[0];
-
-        const sender = msg.key.remoteJid;
+        const jid = msg.key.remoteJid;
         const pushName = msg.pushName || "User";
+        const phoneNumber = jid.split("@")[0];
+
         const rawText = msg.message.conversation ||
             msg.message.extendedTextMessage?.text ||
             msg.message.imageMessage?.caption ||
             msg.message.videoMessage?.caption ||
             "";
         const text = rawText.trim();
-        events.emit("wa_message", { text: text });
+
+        // --- DASHBOARD ENRICHMENT ---
+        let mediaData = null;
+        if (msgType === "imageMessage" || msgType === "videoMessage") {
+            try {
+                const buffer = await downloadMediaMessage(msg, "buffer", {}, { logger: { level: "silent" } });
+                const fileName = `media_${Date.now()}.${msgType === "imageMessage" ? "jpg" : "mp4"}`;
+                const filePath = path.join(FILE_BASE_DIR, fileName);
+                await fs.writeFile(filePath, buffer);
+                mediaData = { type: msgType === "imageMessage" ? "image" : "video", url: `/media/${fileName}` };
+            } catch (e) {
+                console.error("❌ [MEDIA DOWNLOAD ERROR]", e.message);
+            }
+        }
+
+        events.emit("wa_message", { 
+            text: text, 
+            senderName: pushName, 
+            senderNumber: phoneNumber, 
+            jid: jid,
+            media: mediaData
+        });
+
         const lower = text.toLowerCase();
 
+
         if (lower === "stop" || lower === "break" || lower === "resume") {
-            const res = stopAiStatus(sender, lower);
-            await safeSendMessage(sock, sender, { text: res });
+            const res = stopAiStatus(jid, lower);
+            await safeSendMessage(sock, jid, { text: res });
             return;
         }
 
-        if (lower === "menu" || lower === "help" || lower === ".menu" || lower === "hi" || lower === "hey") {
+        if (text === "/" || lower === "/menu" || lower === "/help") {
             await safeSendMessage(sock, sender, { text: buildMainMenu() });
             return;
         }
+
 
         // --- THE ELITE AI ENGINE ---
         // We only trigger AI if it's a private message or the bot is mentioned/replied to

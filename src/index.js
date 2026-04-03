@@ -15,6 +15,20 @@ events.on("request_status", () => {
     events.emit("wa_status", currentStatus);
 });
 
+// Handle Dashboard Replies
+events.on("send_whatsapp", async (data) => {
+    if (sock && (currentStatus === "online" || currentStatus === "connected")) {
+        try {
+            await sock.sendMessage(data.jid, { text: data.text });
+            console.log(`✅ [DASHBOARD] Reply sent to ${data.jid}`);
+        } catch (err) {
+            console.error("❌ [DASHBOARD] Reply failed:", err.message);
+        }
+    } else {
+        console.warn("⚠️ [DASHBOARD] Cannot reply: Bot is offline.");
+    }
+});
+
 async function startSystem() {
     process.title = "Mazhar-DevX-Bot";
     console.log("💎 [SYSTEM] Initializing Mazhar DevX Elite v2.0...");
