@@ -264,12 +264,13 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
 
     memory.push({ role: "user", content: messageContent });
 
-    // Keep memory within bounds
-    if (memory.length > MAX_MEMORY_LENGTH) {
-        memory.splice(1, 2); // Remove oldest user/bot pair but keep system prompt
-    }
+    // --- AI API CALL WITH ROBUST RETRY SYSTEM ---
+    // Prepare a truncated memory context FOR THE API CALL ONLY to stay efficient
+    const apiContext = [
+        memory[0], // Always include the system prompt
+        ...memory.slice(-MAX_MEMORY_LENGTH) // Include the last X messages
+    ];
 
-    // --- AI API CALL WITH ROBUST RETRY SYSTEM AND VISION FALLBACK ---
     try {
         let res = null;
         let retries = 3;
@@ -283,11 +284,12 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                     },
                     body: JSON.stringify({
                         model: model,
-                        messages: memory,
+                        messages: apiContext,
                         temperature: 0.7,
                         max_tokens: 1024
                     })
                 });
+
                 break;
             } catch (err) {
                 console.warn(`⚠️ [AI] Network drop (${err.code}). Rebooting connection... (${retries - 1} left)`);
@@ -473,10 +475,29 @@ function isAiEnabled(jid) {
     return !aiDisabledUsers.has(jid);
 }
 
-function setAdminPrompt(prompt) {
-
-    adminCustomPrompt = prompt;
-    console.log("📝 [AI] System Prompt Updated: " + (prompt || "Default"));
+async function getAllContacts() {
+    try {
+        const files = await fs.readdir(HISTORY_DIR);
+        const contacts = [];
+        for (const file of files) {
+            if (file.startsWith("history_") && file.endsWith(".json")) {
+                const jid = file.replace("history_", "").replace(".json", "").replace(/_/g, ":").replace(/([\d]+):([\d]+)/, "$1@c.us");
+                contacts.push({ 
+                    jid: jid.includes(":") ? jid.replace(":", ".") + "@c.us" : jid,
+                    file: file 
+                });
+            }
+        }
+        return contacts;
+    } catch (e) { return []; }
 }
 
-module.exports = { mazharAiReply, transcribeVoice, stopAiStatus, setAdminPrompt, toggleUserAi, isAiEnabled };
+async function getFullHistory(jid) {
+    const historyPath = path.join(HISTORY_DIR, `history_${jid.replace(/[:@.]/g, "_")}.json`);
+    try {
+        const data = await fs.readFile(historyPath, "utf8");
+        return JSON.parse(data);
+    } catch (e) { return []; }
+}
+
+module.exports = { mazharAiReply, transcribeVoice, stopAiStatus, setAdminPrompt, toggleUserAi, isAiEnabled, getAllContacts, getFullHistory };

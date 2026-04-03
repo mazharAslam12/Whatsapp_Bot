@@ -3,7 +3,8 @@ const fs = require("fs");
 const path = require("path");
 const { Server } = require("socket.io");
 const events = require("../lib/events");
-const { setAdminPrompt, toggleUserAi } = require("./ai");
+const { setAdminPrompt, toggleUserAi, getAllContacts, getFullHistory } = require("./ai");
+
 
 
 
@@ -82,9 +83,20 @@ function startWebServer() {
             toggleUserAi(data.jid, data.status);
         });
 
+        socket.on("get_contacts", async () => {
+            const contacts = await getAllContacts();
+            socket.emit("contact_list", contacts);
+        });
+
+        socket.on("load_chat", async (data) => {
+            const history = await getFullHistory(data.jid);
+            socket.emit("chat_history", { jid: data.jid, history: history });
+        });
+
         socket.on("update_ai_prompt", (data) => {
             setAdminPrompt(data.prompt);
         });
+
 
 
         // Periodic Telemetry
