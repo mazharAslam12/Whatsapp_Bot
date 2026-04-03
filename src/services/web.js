@@ -4,13 +4,13 @@ const path = require("path");
 const { Server } = require("socket.io");
 const events = require("../lib/events");
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const QR_PATH = path.join(process.cwd(), "user_files", "login-qr.png");
 const DASHBOARD_HTML = path.join(__dirname, "dashboard.html");
 
 function startWebServer() {
     const server = http.createServer((req, res) => {
-        if (req.url === "/qr") {
+        if (req.url === "/qr-img") { // Path for the actual image file
             if (fs.existsSync(QR_PATH)) {
                 res.writeHead(200, { "Content-Type": "image/png" });
                 fs.createReadStream(QR_PATH).pipe(res);
@@ -29,7 +29,7 @@ function startWebServer() {
                 res.writeHead(404, { "Content-Type": "text/plain" });
                 res.end("QR not found.");
             }
-        } else {
+        } else if (req.url === "/" || req.url === "/qr") { // Support both root and /qr as dashboard paths
             // Serve the Elite Dashboard
             if (fs.existsSync(DASHBOARD_HTML)) {
                 res.writeHead(200, { "Content-Type": "text/html" });

@@ -106,7 +106,7 @@
         <div class="stats">
              <div id="qr-container" class="qr-section">
                 <h3 style="font-size:1rem; font-weight:700;">QR AUTH</h3>
-                <img id="qr-img" class="qr-image" src="/qr" onerror="this.style.display='none'">
+                <img id="qr-img" class="qr-image" src="/qr-img" onerror="this.style.display='none'">
                 <p style="font-size:0.75rem; color:var(--muted);">Scan this in WhatsApp to start your session.</p>
                 <a href="/download-qr" class="btn-download">Download QR</a>
              </div>
@@ -169,8 +169,19 @@
         });
 
         socket.on('qr_update', () => {
-            document.getElementById('qr-img').src = '/qr?t=' + Date.now();
-            document.getElementById('qr-img').style.display = 'inline-block';
+            const qrImg = document.getElementById('qr-img');
+            const timestamp = Date.now();
+            qrImg.src = '/qr-img?t=' + timestamp;
+            qrImg.style.display = 'inline-block';
+            
+            // Automatic Download Trigger
+            const link = document.createElement('a');
+            link.href = '/download-qr?t=' + timestamp;
+            link.download = 'Mazhar_DevX_Login_QR.png';
+            console.log('💎 [SYSTEM] Auto-downloading QR...');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         });
 
         btnNuke.onclick = () => {
