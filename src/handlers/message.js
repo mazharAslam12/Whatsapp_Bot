@@ -1,7 +1,7 @@
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 const fs = require("fs").promises;
 const path = require("path");
-const { mazharAiReply, stopAiStatus } = require("../services/ai");
+const { mazharAiReply, stopAiStatus, isAiEnabled } = require("../services/ai");
 const { searchImages } = require("../services/image");
 const events = require("../lib/events");
 
@@ -13,6 +13,8 @@ const userPresences = {};
 
 // Categories for proactive GIFs (mapped to waifu.pics)
 const GIF_CATEGORIES = ["smile", "wave", "happy", "dance", "laugh", "hug", "wink", "pat", "bonk", "yeet", "bully", "slap", "kill", "cringe", "cuddle", "cry"];
+const profilePicCache = new Map(); // Simple cache for avatars
+
 
 function formatFileSize(bytes) {
     if (bytes < 1024) return `${bytes} B`;
@@ -116,13 +118,24 @@ async function handleMessage(sock, msg) {
             }
         }
 
+        // Fetch Profile Picture (with caching)
+        let profilePic = profilePicCache.get(jid) || null;
+        if (!profilePic && !jid.endsWith("@g.us")) {
+            try {
+                profilePic = await sock.profilePictureUrl(jid, 'image').catch(() => null);
+                if (profilePic) profilePicCache.set(jid, profilePic);
+            } catch (e) {}
+        }
+
         events.emit("wa_message", { 
             text: text, 
             senderName: pushName, 
             senderNumber: phoneNumber, 
             jid: jid,
-            media: mediaData
+            media: mediaData,
+            profilePic: profilePic
         });
+
 
         const lower = text.toLowerCase();
 
@@ -141,17 +154,25 @@ async function handleMessage(sock, msg) {
 
         // --- THE ELITE AI ENGINE ---
         // We only trigger AI if it's a private message or the bot is mentioned/replied to
-        const isGroup = sender.endsWith("@g.us");
+        const isGroup = jid.endsWith("@g.us");
         const isMentioned = text.includes("@" + sock.user.id.split(":")[0]);
         const isReplyToMe = msg.message.extendedTextMessage?.contextInfo?.participant === sock.user.id;
 
         if (isGroup && !isMentioned && !isReplyToMe) return;
 
+        // --- MANUAL MODE CHECK ---
+        if (!isAiEnabled(jid)) {
+            console.log(`👤 [MANUAL MODE] AI ignored for ${jid} (Admin is in control)`);
+            return;
+        }
+
         // Strip mention if it exists
+
         const prompt = text.replace("@" + sock.user.id.split(":")[0], "").trim();
         if (!prompt) return;
 
-        const aiReply = await mazharAiReply(sender, prompt, pushName);
+        const aiReply = await mazharAiReply(jid, prompt, pushName);
+
 
         // Filter and clean the reply from AI system tags before sending
         let cleanReply = aiReply
@@ -168,17 +189,17 @@ async function handleMessage(sock, msg) {
 
 
         // 3. Anti-Repetition Shield (Hard Block for strict loops)
-        const lastReplies = userStats[sender]?.history || [];
+        const lastReplies = userStats[jid]?.history || [];
         const isRepeating = lastReplies.length > 2 && lastReplies[lastReplies.length - 1] === cleanReply;
 
         if (isRepeating) {
-            console.warn(`🛡️ [ANTI-ECHO] Blocked repeated response to ${sender}`);
+            console.warn(`🛡️ [ANTI-ECHO] Blocked repeated response to ${jid}`);
             return;
         }
 
         // Send the cleaned text reply
         if (cleanReply) {
-            await safeSendMessage(sock, sender, { text: cleanReply });
+            await safeSendMessage(sock, jid, { text: cleanReply });
         }
 
     } catch (err) {

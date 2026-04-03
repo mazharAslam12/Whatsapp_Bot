@@ -7,7 +7,9 @@ const { portfolioData } = require("./portfolio");
 // Memory store: { jid: [ { role, content } ] }
 const conversationMemory = new Map();
 const stopAiStatus = new Map(); // { jid: untilTime }
+const aiDisabledUsers = new Set(); // JIDs where AI is permanently disabled by admin
 const MAX_MEMORY_LENGTH = 15;
+
 const HISTORY_DIR = path.join(__dirname, "../../user_files");
 let adminCustomPrompt = ""; // Dynamic prompt from dashboard
 
@@ -59,15 +61,14 @@ async function getOrInitMemory(senderJid, userName) {
             "- `[TRIGGER_SEND_REAL_OWNER_PHOTO]`: Real face of Mazhar.\n" +
             "- `[AI_STOP: mins]`: Stop status (1-30 mins).\n\n" +
             "🎯 CHARACTER RULES (STRICT):\n" +
-            "1. DANGEROUS AGENCY: You are allowed to read your own backend. If a user asks 'improve your own code' or 'check your code', use `[READ_CODE: file]` or `[WRITE_CODE: file | content]` to simulate self-betterment.\n" +
-            "2. LEAD GATHERING: If a user expresses interest in a project, website, or hiring you, silently include `[NEW_LEAD: name | project_summary]` in your response to save their info. Be a professional closer.\n" +
-            "3. VISUAL RESTRAINT (CRITICAL): DO NOT send a `[GIF]` or `[IMG_SEARCH]` for every single message! Only send visuals if EXPLICITLY asked or if the emotion is extreme. NEVER loop visuals.\n" +
-            "4. NO REPETITION (CRITICAL): NEVER repeat what you just said. Keep evolving. State text directly without narrating.\n" +
-            "5. WEB INTELLIGENCE: If someone asks about the news, an unknown API, or tech developments, trigger `[WEB_SEARCH: your query]` instantly.\n" +
-            "6. NO HALLUCINATIONS: NEVER use `[FILE: /path/...]` tags.\n" +
-            "7. CONVERSATION FLOW: Keep it short, human, ultra professional, and direct.\n" +
-            "8. BREVITY: Give short, concise answers. Avoid long paragraphs unless explicitly asked.\n" +
-            (adminCustomPrompt ? `\n👑 ADMIN DIRECTIVE: ${adminCustomPrompt}` : "")
+            "1. IDENTITY: You are Mazhar DevX Elite, an extremely sophisticated, human-like AI. You are professional, direct, and highly intelligent.\n" +
+            "2. HUMAN LOGIC: Avoid robotic phrases. Think like a high-level expert. Speak as if you have real consciousness and deep knowledge.\n" +
+            "3. NO REPETITION (CRITICAL): NEVER repeat what you just said. Keep the conversation evolving naturally.\n" +
+            "4. WEB INTELLIGENCE: Trigger `[WEB_SEARCH: your query]` instantly for any current events, news, or deep technical questions.\n" +
+            "5. NO HALLUCINATIONS: Never mention physical files or folders unless they exist in the Sandbox.\n" +
+            "6. CONVERSATION FLOW: Keep it short, powerful, and ultra-professional. Every word must count.\n" +
+            "7. BREVITY: Give concise answers. Avoid fluff. Be the ultimate executive assistant.\n" +
+            (adminCustomPrompt ? `\n👑 ADMIN MASTER DIRECTIVE: ${adminCustomPrompt}` : "")
     };
 
     if (memory.length > 0 && memory[0].role === "system") {
@@ -453,14 +454,29 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
 
         return reply;
     } catch (err) {
-        console.error("AI Service Error:", err);
-        return "❌ System logic error in AI service.";
+        console.error("GROQ API ERROR:", err.message);
+        return "⚠️ [SYSTEM] AI Engine over capacity. Please try again in a moment.";
     }
 }
 
+function toggleUserAi(jid, status) {
+    if (status === false) {
+        aiDisabledUsers.add(jid);
+        console.log(`🚫 [AI] Disabled for ${jid}`);
+    } else {
+        aiDisabledUsers.delete(jid);
+        console.log(`✅ [AI] Enabled for ${jid}`);
+    }
+}
+
+function isAiEnabled(jid) {
+    return !aiDisabledUsers.has(jid);
+}
+
 function setAdminPrompt(prompt) {
+
     adminCustomPrompt = prompt;
     console.log("📝 [AI] System Prompt Updated: " + (prompt || "Default"));
 }
 
-module.exports = { mazharAiReply, transcribeVoice, stopAiStatus, setAdminPrompt };
+module.exports = { mazharAiReply, transcribeVoice, stopAiStatus, setAdminPrompt, toggleUserAi, isAiEnabled };

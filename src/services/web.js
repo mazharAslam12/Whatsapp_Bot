@@ -3,7 +3,8 @@ const fs = require("fs");
 const path = require("path");
 const { Server } = require("socket.io");
 const events = require("../lib/events");
-const { setAdminPrompt } = require("./ai");
+const { setAdminPrompt, toggleUserAi } = require("./ai");
+
 
 
 const PORT = process.env.PORT || 8080;
@@ -72,12 +73,19 @@ function startWebServer() {
 
         socket.on("admin_reply", (data) => {
             console.log(`📩 [DASHBOARD] Replying to ${data.jid}: ${data.text}`);
+            // Automatically disable AI for this user so admin can continue manually
+            toggleUserAi(data.jid, false);
             events.emit("send_whatsapp", data);
+        });
+
+        socket.on("toggle_ai", (data) => {
+            toggleUserAi(data.jid, data.status);
         });
 
         socket.on("update_ai_prompt", (data) => {
             setAdminPrompt(data.prompt);
         });
+
 
         // Periodic Telemetry
         const telemetryTimer = setInterval(() => {
