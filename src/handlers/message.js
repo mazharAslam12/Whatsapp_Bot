@@ -1,7 +1,7 @@
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 const fs = require("fs").promises;
 const path = require("path");
-const { mazharAiReply, stopAiStatus, isAiEnabled } = require("../services/ai");
+const { mazharAiReply, stopAiStatus, isAiEnabled, transcribeVoice } = require("../services/ai");
 const { searchImages } = require("../services/image");
 const events = require("../lib/events");
 
@@ -104,15 +104,22 @@ async function handleMessage(sock, msg) {
             "";
         const text = rawText.trim();
 
-        // --- DASHBOARD ENRICHMENT ---
+        // --- MEDIA PROCESSING ---
+        let mediaBuffer = null;
+        let mediaType = null;
         let mediaData = null;
-        if (msgType === "imageMessage" || msgType === "videoMessage") {
+
+        if (msgType === "imageMessage" || msgType === "videoMessage" || msgType === "audioMessage") {
             try {
-                const buffer = await downloadMediaMessage(msg, "buffer", {}, { logger: { level: "silent" } });
-                const fileName = `media_${Date.now()}.${msgType === "imageMessage" ? "jpg" : "mp4"}`;
-                const filePath = path.join(FILE_BASE_DIR, fileName);
-                await fs.writeFile(filePath, buffer);
-                mediaData = { type: msgType === "imageMessage" ? "image" : "video", url: `/media/${fileName}` };
+                mediaBuffer = await downloadMediaMessage(msg, "buffer", {}, { logger: { level: "silent" } });
+                mediaType = msgType.replace("Message", "");
+                
+                if (msgType !== "audioMessage") {
+                    const fileName = `media_${Date.now()}.${mediaType === "image" ? "jpg" : "mp4"}`;
+                    const filePath = path.join(FILE_BASE_DIR, fileName);
+                    await fs.writeFile(filePath, mediaBuffer);
+                    mediaData = { type: mediaType, url: `/media/${fileName}` };
+                }
             } catch (e) {
                 console.error("❌ [MEDIA DOWNLOAD ERROR]", e.message);
             }
@@ -147,12 +154,22 @@ async function handleMessage(sock, msg) {
         }
 
         if (text === "/" || lower === "/menu" || lower === "/help") {
-            await safeSendMessage(sock, sender, { text: buildMainMenu() });
+            await safeSendMessage(sock, jid, { text: buildMainMenu() });
             return;
         }
 
-
         // --- THE ELITE AI ENGINE ---
+        let prompt = text;
+        
+        // Handle Voice Notes (Transcribe to text)
+        if (msgType === "audioMessage" && mediaBuffer) {
+            console.log("🎤 [SYSTEM] Transcribing voice note...");
+            const transcript = await transcribeVoice(mediaBuffer);
+            if (transcript) {
+                console.log(`🎤 [VOICE] Transcribed: "${transcript}"`);
+                prompt = transcript;
+            }
+        }
         // We only trigger AI if it's a private message or the bot is mentioned/replied to
         const isGroup = jid.endsWith("@g.us");
         const isMentioned = text.includes("@" + sock.user.id.split(":")[0]);
@@ -168,10 +185,10 @@ async function handleMessage(sock, msg) {
 
         // Strip mention if it exists
 
-        const prompt = text.replace("@" + sock.user.id.split(":")[0], "").trim();
-        if (!prompt) return;
+        const finalPrompt = prompt.replace("@" + sock.user.id.split(":")[0], "").trim();
+        if (!finalPrompt && !mediaBuffer) return;
 
-        const aiReply = await mazharAiReply(prompt, jid, pushName);
+        const aiReply = await mazharAiReply(finalPrompt, jid, pushName, mediaBuffer, mediaType);
 
 
 
@@ -186,16 +203,46 @@ async function handleMessage(sock, msg) {
             .trim();
 
         console.log(`💎 [AI REPLY] ${cleanReply.substring(0, 100)}...`);
-        events.emit("ai_reply", { text: cleanReply });
+        events.emit("ai_reply", { text: cleanReply, jid: jid });
 
 
-        // 3. Anti-Repetition Shield (Hard Block for strict loops)
-        const lastReplies = userStats[jid]?.history || [];
-        const isRepeating = lastReplies.length > 2 && lastReplies[lastReplies.length - 1] === cleanReply;
+        // --- TRIGGER EXECUTION ENGINE (SEQUENTIAL POWER) ---
+        // 1. REACTION
+        const reactionMatch = aiReply.match(/\[REACTION:\s*(.*?)\]/i);
+        if (reactionMatch) {
+            await safeSendMessage(sock, jid, { react: { text: reactionMatch[1], key: msg.key } });
+        }
 
-        if (isRepeating) {
-            console.warn(`🛡️ [ANTI-ECHO] Blocked repeated response to ${jid}`);
-            return;
+        // 2. MEDIA TRIGGERS (Images, GIFs, Songs)
+        const imgMatch = aiReply.match(/\[IMG_SEARCH:\s*(.*?)\]/i);
+        if (imgMatch) {
+            const urls = await searchImages(imgMatch[1], 1);
+            if (urls?.[0]) await safeSendMessage(sock, jid, { image: { url: urls[0] }, caption: "💎 Mazhar DevX Discovery" });
+        }
+
+        const gifMatch = aiReply.match(/\[GIF:\s*(.*?)\]/i);
+        if (gifMatch) {
+            const category = gifMatch[1].toLowerCase();
+            const res = await fetch(`https://api.waifu.pics/sfw/${category}`);
+            if (res.ok) {
+                const data = await res.json();
+                await safeSendMessage(sock, jid, { video: { url: data.url }, gifPlayback: true });
+            }
+        }
+
+        const songMatch = aiReply.match(/\[SONG_SEARCH:\s*(.*?)\]/i);
+        if (songMatch) {
+            try {
+                const { searchAudio } = require("../services/search");
+                const audioBuffer = await searchAudio(songMatch[1]);
+                await safeSendMessage(sock, jid, { audio: audioBuffer, mimetype: "audio/mp4", ptt: false });
+            } catch (e) { console.error("❌ Song trigger fail:", e.message); }
+        }
+
+        const ownerPhotoMatch = aiReply.match(/\[TRIGGER_SEND_REAL_OWNER_PHOTO\]/i);
+        if (ownerPhotoMatch) {
+            const chosen = OWNER_IMAGES[Math.floor(Math.random() * OWNER_IMAGES.length)];
+            await safeSendMessage(sock, jid, { image: { url: chosen }, caption: "Me (Mazhar DevX)" });
         }
 
         // Send the cleaned text reply

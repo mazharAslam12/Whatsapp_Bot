@@ -298,7 +298,16 @@
                 appendBubble(data.role === 'whatsapp' ? 'whatsapp' : 'ai', data.text, Date.now(), data.media);
                 feed.scrollTo(0, feed.scrollHeight);
             }
-            if(!knownContacts.find(c => c.jid === data.jid)) socket.emit('get_contacts');
+            
+            // Update contact identity dynamically
+            const contact = knownContacts.find(c => c.jid === data.jid);
+            if (contact) {
+                if (data.senderName) contact.name = data.senderName;
+                if (data.profilePic) contact.profilePic = data.profilePic;
+                renderContacts();
+            } else {
+                socket.emit('get_contacts'); // Fetch new contact
+            }
         });
 
         function appendBubble(role, text, time, media) {
