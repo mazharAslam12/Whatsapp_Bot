@@ -3,10 +3,10 @@ const fs = require("fs").promises;
 const path = require("path");
 const { portfolioData } = require("./portfolio");
 
-// Memory store: { jid: [ { role, content } ] }
 const conversationMemory = new Map();
 const stopAiStatus = new Map(); // { jid: untilTime }
 const aiDisabledUsers = new Set(); // JIDs where AI is permanently disabled by admin
+const userSpecificPrompts = new Map(); // Master override custom rules per user
 const MAX_MEMORY_LENGTH = 15;
 
 const HISTORY_DIR = path.join(__dirname, "../../user_files");
@@ -58,7 +58,8 @@ async function getOrInitMemory(senderJid, userName) {
             "4. NO UNPROMPTED BRAGGING: Never list your projects or skills unless the user specifically asks 'what do you do' or 'tell me about your work'.\n" +
             "5. CASUAL TONE: Use words like 'yaar', 'bhai', 'han', 'theek'. Keep it cool and relaxed.\n" +
             "6. AVOID REPETITION: Never repeat the same greeting or phrase twice in a row. React naturally.\n" +
-            (adminCustomPrompt ? `\n👑 MASTER DIRECTIVE: ${adminCustomPrompt}` : "")
+            (adminCustomPrompt ? `\n👑 MASTER DIRECTIVE: ${adminCustomPrompt}` : "") +
+            (userSpecificPrompts.has(senderJid) ? `\n🔥 TARGET OVERRIDE: ${userSpecificPrompts.get(senderJid)}` : "")
     };
 
     if (memory.length > 0 && memory[0].role === "system") {
@@ -205,10 +206,24 @@ function isAiEnabled(jid) { return !aiDisabledUsers.has(jid); }
 async function getAllContacts() {
     try {
         const files = await fs.readdir(HISTORY_DIR);
-        return files.filter(f => f.startsWith("history_") && f.endsWith(".json")).map(f => ({
-            jid: f.replace("history_", "").replace(".json", "").replace(/_/g, ":").replace(/([\d]+):([\d]+)/, "$1@c.us"),
-            file: f
-        }));
+        const contactPromises = files.filter(f => f.startsWith("history_") && f.endsWith(".json")).map(async f => {
+            const safeJidName = f.replace("history_", "").replace(".json", "");
+            const jid = safeJidName.replace(/_/g, ":").replace(/([\d]+):([\d]+)/, "$1@c.us");
+            
+            let name = jid.split('@')[0];
+            let profilePic = "No Pic";
+            
+            try {
+                const profilePath = path.join(HISTORY_DIR, "profiles", `${safeJidName}.json`);
+                const profileData = await fs.readFile(profilePath, "utf8");
+                const profile = JSON.parse(profileData);
+                if (profile.name && profile.name !== "User") name = profile.name;
+                if (profile.profilePic && profile.profilePic !== "No Pic") profilePic = profile.profilePic;
+            } catch(e) {}
+
+            return { jid, file: f, name, profilePic, overrideActive: userSpecificPrompts.has(jid) };
+        });
+        return await Promise.all(contactPromises);
     } catch (e) { return []; }
 }
 
@@ -223,4 +238,17 @@ function setAdminPrompt(prompt) {
     adminCustomPrompt = prompt;
 }
 
-module.exports = { mazharAiReply, transcribeVoice, stopAiStatus, setAdminPrompt, toggleUserAi, isAiEnabled, getAllContacts, getFullHistory };
+function setUserSpecificPrompt(jid, prompt) {
+    if (!prompt) userSpecificPrompts.delete(jid);
+    else userSpecificPrompts.set(jid, prompt);
+}
+
+async function addAdminMessageToMemory(jid, text) {
+    try {
+        const memory = await getOrInitMemory(jid, "User");
+        memory.push({ role: "assistant", content: `👑 MASTER BYPASS: ${text}`, timestamp: Date.now() });
+        await saveMemory(jid, memory);
+    } catch (err) {}
+}
+
+module.exports = { mazharAiReply, transcribeVoice, stopAiStatus, setAdminPrompt, toggleUserAi, isAiEnabled, getAllContacts, getFullHistory, setUserSpecificPrompt, addAdminMessageToMemory };

@@ -143,6 +143,14 @@
                     <div id="status-dot" class="dot"></div>
                     <span id="status-label" style="font-size:0.85rem; font-weight:800; color:var(--muted)">DISCONNECTED</span>
                 </div>
+                <div style="margin-top: 15px;">
+                    <button onclick="toggleOverridePanel()" class="btn btn-ghost" style="width:100%; font-size:0.75rem; padding: 12px; border: 1px dashed var(--border);">⚙️ Target Override Rules</button>
+                    <div id="override-panel" style="display:none; margin-top: 10px; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 15px; border: 1px solid var(--border);">
+                        <input type="text" id="override-jid" placeholder="Target Number (e.g. 9234...)" style="width:100%; background:var(--card); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:8px; margin-bottom:10px; font-size:0.8rem; outline:none;">
+                        <textarea id="override-rule" placeholder="Custom Rule / Prompt (Leave blank to remove)" style="width:100%; background:var(--card); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:8px; margin-bottom:10px; font-size:0.8rem; outline:none; resize:none; height: 60px;"></textarea>
+                        <button onclick="applyOverride()" class="btn btn-primary" style="width:100%; font-size:0.75rem; padding: 8px;">Inject Target Rule</button>
+                    </div>
+                </div>
             </div>
 
             <div id="contacts-container" class="contacts-scroll">
@@ -228,22 +236,45 @@
                 card.className = `contact-card ${currentJid === c.jid ? 'active' : ''}`;
                 card.onclick = () => selectThread(c.jid);
                 
-                const avatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(c.jid.split('@')[0])}&background=25d366&color=fff&bold=true`;
+                const avatar = (c.profilePic && c.profilePic !== "No Pic") 
+                    ? c.profilePic 
+                    : `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=25d366&color=fff&bold=true`;
                 
+                const metaText = c.overrideActive ? '<span style="color:var(--danger)">⚠️ CUSTOM RULE ACTIVE</span>' : 'v5.0 Protocol Verified';
+
                 card.innerHTML = `
                     <div class="avatar-box"><img src="${avatar}"></div>
                     <div class="contact-detail">
-                        <div class="contact-user">${c.jid.split('@')[0]}</div>
-                        <div class="contact-meta">v4.0 Protocol Verified</div>
+                        <div class="contact-user">${c.name}</div>
+                        <div class="contact-meta">${metaText}</div>
                     </div>
                 `;
                 contactList.appendChild(card);
             });
         }
 
+        function toggleOverridePanel() {
+            const panel = document.getElementById('override-panel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function applyOverride() {
+            const jidInput = document.getElementById('override-jid').value.trim();
+            const ruleInput = document.getElementById('override-rule').value.trim();
+            if (!jidInput) return alert('Enter a target phone number.');
+            
+            let finalJid = jidInput;
+            if (!finalJid.includes('@')) finalJid = finalJid.replace(/[^0-9]/g, '') + '@c.us';
+
+            socket.emit('override_user_ai', { jid: finalJid, prompt: ruleInput });
+            alert(ruleInput ? 'Custom Rule Injected for ' + finalJid : 'Rules cleared for ' + finalJid);
+            toggleOverridePanel();
+        }
+
         function selectThread(jid) {
             currentJid = jid;
-            document.getElementById('active-user-name').innerText = jid.split('@')[0];
+            const contact = knownContacts.find(c => c.jid === jid);
+            document.getElementById('active-user-name').innerText = contact ? contact.name : jid.split('@')[0];
             document.getElementById('active-user-jid').innerText = jid;
             document.getElementById('master-controls').style.display = 'flex';
             document.getElementById('ai-toggle-btn').innerText = 'MANUAL MODE ON';

@@ -213,4 +213,4 @@ async function handlePresence(update) {
     userPresences[id] = presences;
 }
 
-module.exports = { handleMessage, handlePresence };
+module.exports = { handleMessage, handlePresence, safeSendMessage };

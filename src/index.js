@@ -1,6 +1,6 @@
 require("dotenv").config();
 const { connectToWhatsApp } = require("./lib/whatsapp");
-const { handleMessage, handlePresence } = require("./handlers/message");
+const { handleMessage, handlePresence, safeSendMessage } = require("./handlers/message");
 const { startWebServer } = require("./services/web");
 const events = require("./lib/events");
 
@@ -19,7 +19,7 @@ events.on("request_status", () => {
 events.on("send_whatsapp", async (data) => {
     if (sock && (currentStatus === "online" || currentStatus === "connected")) {
         try {
-            await sock.sendMessage(data.jid, { text: data.text });
+            await safeSendMessage(sock, data.jid, { text: data.text });
             console.log(`✅ [DASHBOARD] Reply sent to ${data.jid}`);
         } catch (err) {
             console.error("❌ [DASHBOARD] Reply failed:", err.message);

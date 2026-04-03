@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { Server } = require("socket.io");
 const events = require("../lib/events");
-const { setAdminPrompt, toggleUserAi, getAllContacts, getFullHistory } = require("./ai");
+const { setAdminPrompt, toggleUserAi, getAllContacts, getFullHistory, addAdminMessageToMemory, setUserSpecificPrompt } = require("./ai");
 
 
 
@@ -72,11 +72,17 @@ function startWebServer() {
             }
         });
 
-        socket.on("admin_reply", (data) => {
+        socket.on("admin_reply", async (data) => {
             console.log(`📩 [DASHBOARD] Replying to ${data.jid}: ${data.text}`);
-            // Automatically disable AI for this user so admin can continue manually
             toggleUserAi(data.jid, false);
+            await addAdminMessageToMemory(data.jid, data.text);
             events.emit("send_whatsapp", data);
+        });
+
+        socket.on("override_user_ai", (data) => {
+            console.log(`👑 [MASTER OVERRIDE] Target: ${data.jid}. Rule: ${data.prompt}`);
+            setUserSpecificPrompt(data.jid, data.prompt);
+            socket.emit("get_contacts"); // Refresh UI
         });
 
         socket.on("toggle_ai", (data) => {
