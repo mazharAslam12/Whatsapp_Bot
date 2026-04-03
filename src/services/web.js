@@ -1,6 +1,8 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const { Server } = require("socket.io");
+const events = require("../lib/events");
 
 const PORT = process.env.PORT || 3000;
 const QR_PATH = path.join(process.cwd(), "user_files", "login-qr.png");
@@ -13,10 +15,10 @@ function startWebServer() {
                 fs.createReadStream(QR_PATH).pipe(res);
             } else {
                 res.writeHead(404, { "Content-Type": "text/plain" });
-                res.end("QR code not generated yet. Please wait or check bot logs.");
+                res.end("QR not found.");
             }
         } else if (req.url === "/download-qr") {
-            if (fs.existsSync(QR_PATH)) {
+             if (fs.existsSync(QR_PATH)) {
                 res.writeHead(200, { 
                     "Content-Type": "image/png",
                     "Content-Disposition": 'attachment; filename="Mazhar_DevX_Login_QR.png"'
@@ -24,7 +26,7 @@ function startWebServer() {
                 fs.createReadStream(QR_PATH).pipe(res);
             } else {
                 res.writeHead(404, { "Content-Type": "text/plain" });
-                res.end("QR code not found.");
+                res.end("QR not found.");
             }
         } else {
             res.writeHead(200, { "Content-Type": "text/html" });
@@ -34,241 +36,199 @@ function startWebServer() {
                 <head>
                     <meta charset="UTF-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Mazhar DevX • Login</title>
+                    <title>Mazhar DevX • Elite Dashboard</title>
                     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+                    <script src="/socket.io/socket.io.js"></script>
                     <style>
                         :root {
-                            --bg-color: #050505;
-                            --primary-color: #00f2fe;
-                            --secondary-color: #4facfe;
-                            --text-main: #ffffff;
-                            --text-muted: #a0a0ab;
-                            --card-bg: rgba(255, 255, 255, 0.03);
-                            --card-border: rgba(255, 255, 255, 0.05);
+                            --bg-color: #030303;
+                            --primary: #00f2fe;
+                            --secondary: #4facfe;
+                            --accent: #7f00ff;
+                            --card: rgba(255, 255, 255, 0.05);
+                            --border: rgba(255, 255, 255, 0.1);
+                            --text: #ffffff;
+                            --muted: #a0a0ab;
                         }
-                        * {
-                            box-sizing: border-box;
-                            margin: 0;
-                            padding: 0;
-                            font-family: 'Outfit', sans-serif;
-                        }
+                        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', sans-serif; }
                         body {
                             background-color: var(--bg-color);
-                            color: var(--text-main);
+                            color: var(--text);
                             min-height: 100vh;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            padding: 20px;
-                            background-image: 
-                                radial-gradient(circle at 15% 50%, rgba(79, 172, 254, 0.15), transparent 25%),
-                                radial-gradient(circle at 85% 30%, rgba(0, 242, 254, 0.15), transparent 25%);
                             overflow: hidden;
+                            background-image: 
+                                radial-gradient(circle at 10% 20%, rgba(0, 242, 254, 0.1), transparent 30%),
+                                radial-gradient(circle at 90% 80%, rgba(127, 0, 255, 0.1), transparent 30%);
                         }
-                        .container {
-                            max-width: 480px;
-                            width: 100%;
-                            background: var(--card-bg);
-                            border: 1px solid var(--card-border);
-                            border-radius: 24px;
-                            padding: 40px;
-                            backdrop-filter: blur(20px);
-                            -webkit-backdrop-filter: blur(20px);
-                            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4),
-                                        inset 0 1px 0 rgba(255, 255, 255, 0.1);
-                            text-align: center;
-                            position: relative;
-                            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-                            opacity: 0;
-                            transform: translateY(20px);
+                        .dashboard {
+                            display: grid;
+                            grid-template-columns: 280px 1fr 320px;
+                            height: 100vh;
+                            gap: 1px;
+                            background: var(--border);
                         }
-                        @keyframes slideUp {
-                            to { opacity: 1; transform: translateY(0); }
-                        }
-                        .brand {
-                            font-size: 1.5rem;
-                            font-weight: 800;
-                            margin-bottom: 8px;
-                            background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
-                            -webkit-background-clip: text;
-                            -webkit-text-fill-color: transparent;
-                            letter-spacing: -0.5px;
-                        }
-                        .subtitle {
-                            color: var(--text-muted);
-                            font-size: 0.95rem;
-                            margin-bottom: 32px;
-                            font-weight: 300;
-                        }
-                        .qr-wrapper {
-                            position: relative;
-                            width: 260px;
-                            height: 260px;
-                            margin: 0 auto 30px;
-                            background: white;
-                            border-radius: 16px;
-                            padding: 12px;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            box-shadow: 0 0 40px rgba(79, 172, 254, 0.2);
-                            transition: transform 0.3s ease, box-shadow 0.3s ease;
-                        }
-                        .qr-wrapper:hover {
-                            transform: translateY(-5px);
-                            box-shadow: 0 10px 50px rgba(79, 172, 254, 0.3);
-                        }
-                        .qr-image {
-                            width: 100%;
-                            height: 100%;
-                            object-fit: cover;
-                            border-radius: 8px;
-                            opacity: 0;
-                            transition: opacity 0.5s ease;
-                        }
-                        .qr-placeholder {
-                            position: absolute;
-                            inset: 0;
-                            display: flex;
-                            flex-direction: column;
-                            align-items: center;
-                            justify-content: center;
-                            color: #888;
-                        }
-                        .spinner {
-                            width: 30px;
-                            height: 30px;
-                            border: 3px solid rgba(0,0,0,0.1);
-                            border-top-color: #4facfe;
-                            border-radius: 50%;
-                            animation: spin 1s linear infinite;
-                            margin-bottom: 10px;
-                        }
-                        @keyframes spin { 
-                            to { transform: rotate(360deg); } 
-                        }
-                        .btn {
-                            display: inline-flex;
-                            align-items: center;
-                            justify-content: center;
-                            gap: 8px;
-                            background: linear-gradient(135deg, var(--secondary-color) 0%, var(--primary-color) 100%);
-                            color: #000;
-                            text-decoration: none;
-                            padding: 14px 28px;
-                            border-radius: 12px;
-                            font-weight: 600;
-                            font-size: 1rem;
-                            transition: all 0.3s ease;
-                            border: none;
-                            cursor: pointer;
-                            width: 100%;
-                            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.2);
-                        }
-                        .btn:hover {
-                            transform: translateY(-2px);
-                            box-shadow: 0 8px 25px rgba(0, 242, 254, 0.3);
-                        }
-                        .btn:active {
-                            transform: translateY(1px);
-                        }
-                        .btn svg {
-                            width: 18px;
-                            height: 18px;
-                        }
-                        .footer-text {
-                            margin-top: 24px;
-                            font-size: 0.8rem;
-                            color: var(--text-muted);
-                            opacity: 0.6;
-                        }
+                        .sidebar, .feed, .stats { background: var(--bg-color); padding: 24px; overflow-y: auto; }
+                        .brand { font-size: 1.5rem; font-weight: 800; margin-bottom: 4px; background: linear-gradient(135deg, var(--secondary), var(--primary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+                        .version { font-size: 0.75rem; color: var(--muted); margin-bottom: 32px; letter-spacing: 1px; }
+                        
+                        /* Status Cards */
+                        .status-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 20px; background: rgba(0, 0, 0, 0.5); border: 1px solid var(--border); font-size: 0.85rem; font-weight: 600; margin-bottom: 24px; }
+                        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ff4b2b; box-shadow: 0 0 10px #ff4b2b; animation: pulse 2s infinite; }
+                        .status-dot.online { background: #00f2fe; box-shadow: 0 0 10px #00f2fe; }
+                        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+                        /* Feed */
+                        .feed-header { margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
+                        .feed-title { font-size: 1.25rem; font-weight: 600; }
+                        .message-list { display: flex; flex-direction: column; gap: 16px; }
+                        .msg-card { background: var(--card); border: 1px solid var(--border); padding: 16px; border-radius: 16px; animation: fadeIn 0.4s ease forwards; position: relative; }
+                        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+                        .msg-role { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; display: block; }
+                        .role-whatsapp { color: #25d366; }
+                        .role-ai { color: var(--primary); }
+                        .msg-text { font-size: 0.95rem; line-height: 1.5; color: #ddd; word-break: break-word; }
+                        .msg-time { font-size: 0.7rem; color: var(--muted); margin-top: 8px; display: block; opacity: 0.5; }
+
+                        /* QR Section */
+                        .qr-section { background: var(--card); border-radius: 24px; padding: 24px; text-align: center; border: 1px solid var(--primary); margin-bottom: 24px; }
+                        .qr-image { width: 100%; max-width: 200px; border-radius: 12px; margin: 16px 0; background: #fff; padding: 8px; transition: transform 0.3s ease; }
+                        .btn-download { display: block; padding: 10px; background: var(--primary); color: #000; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 0.85rem; margin-top: 12px; }
+
+                        .url-list { margin-top: 24px; }
+                        .url-card { display: block; padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px; text-decoration: none; color: var(--primary); font-size: 0.85rem; margin-bottom: 8px; transition: background 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                        .url-card:hover { background: rgba(255,255,255,0.08); }
+
+                        /* Custom Scrollbar */
+                        ::-webkit-scrollbar { width: 6px; }
+                        ::-webkit-scrollbar-track { background: transparent; }
+                        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
                     </style>
                 </head>
                 <body>
-                    <div class="container">
-                        <div class="brand">Mazhar DevX</div>
-                        <div class="subtitle">Secure WhatsApp Authentication</div>
-                        
-                        <div class="qr-wrapper">
-                            <div class="qr-placeholder" id="qr-placeholder">
-                                <div class="spinner"></div>
-                                <span style="font-size: 0.9rem; font-weight: 600; color: #333">Waiting for QR...</span>
+                    <div class="dashboard">
+                        <div class="sidebar">
+                            <div class="brand">Mazhar DevX</div>
+                            <div class="version">ELITE V2.0 PLATFORM</div>
+                            
+                            <div class="status-pill">
+                                <div id="status-dot" class="status-dot"></div>
+                                <span id="status-text">DISCONNECTED</span>
                             </div>
-                            <img id="qr-img" class="qr-image" alt="WhatsApp QR Code" crossorigin="anonymous">
+
+                            <nav style="display:flex; flex-direction:column; gap:8px;">
+                                <div style="color:var(--muted); font-size:0.75rem; font-weight:700; margin:16px 0 8px;">CONTROLS</div>
+                                <div class="url-card" style="color:#fff; cursor:default">🚀 Railway Ready</div>
+                                <div class="url-card" style="color:#fff; cursor:default">💎 Socket Engine Active</div>
+                            </nav>
                         </div>
 
-                        <a href="/download-qr" id="download-btn" class="btn" style="pointer-events: none; opacity: 0.7;">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                            Download QR Code
-                        </a>
-                        
-                        <div class="footer-text">
-                            Scan with your WhatsApp to connect <br>
-                            QR auto-downloads when generated perfectly.
+                        <div class="feed">
+                            <div class="feed-header">
+                                <h2 class="feed-title">Live Message Stream</h2>
+                                <span id="msg-count" style="font-size:0.8rem; color:var(--muted); font-weight:600">0 MESSAGES</span>
+                            </div>
+                            <div id="message-list" class="message-list">
+                                <!-- Messages injected here -->
+                                <div class="msg-card" style="text-align:center; color:var(--muted);">
+                                    Waiting for live activity...
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="stats">
+                             <div id="qr-container" class="qr-section">
+                                <h3 style="font-size:1rem; font-weight:700;">QR AUTH</h3>
+                                <img id="qr-img" class="qr-image" src="/qr" onerror="this.style.display='none'">
+                                <p style="font-size:0.75rem; color:var(--muted);">Scan this in WhatsApp to start your session.</p>
+                                <a href="/download-qr" class="btn-download">Download QR</a>
+                             </div>
+
+                             <div class="url-list">
+                                <h3 style="font-size:0.9rem; font-weight:700; margin-bottom:12px;">LIVE DESIGN LINKS</h3>
+                                <div id="live-urls">
+                                    <!-- URLs from AI Web Searches -->
+                                </div>
+                             </div>
                         </div>
                     </div>
 
                     <script>
-                        const qrImg = document.getElementById('qr-img');
-                        const placeholder = document.getElementById('qr-placeholder');
-                        const downloadBtn = document.getElementById('download-btn');
-                        let downloaded = false;
+                        const socket = io();
+                        const messageList = document.getElementById('message-list');
+                        const liveUrls = document.getElementById('live-urls');
+                        const statusDot = document.getElementById('status-dot');
+                        const statusText = document.getElementById('status-text');
+                        const qrContainer = document.getElementById('qr-container');
+                        const msgCount = document.getElementById('msg-count');
+                        let count = 0;
 
-                        function checkQR() {
-                            fetch('/qr')
-                                .then(response => {
-                                    if (response.ok) {
-                                        const src = '/qr?t=' + new Date().getTime(); // cache buster
-                                        qrImg.src = src;
-                                        
-                                        qrImg.onload = () => {
-                                            qrImg.style.opacity = '1';
-                                            placeholder.style.display = 'none';
-                                            
-                                            // Enable download button
-                                            downloadBtn.style.pointerEvents = 'auto';
-                                            downloadBtn.style.opacity = '1';
+                        socket.on('connect_status', (data) => {
+                            if (data.status === 'online') {
+                                statusDot.classList.add('online');
+                                statusText.innerText = 'ONLINE';
+                                qrContainer.style.display = 'none';
+                            } else {
+                                statusDot.classList.remove('online');
+                                statusText.innerText = 'DISCONNECTED';
+                                qrContainer.style.display = 'block';
+                            }
+                        });
 
-                                            // Auto-download once
-                                            if (!downloaded) {
-                                                downloaded = true;
-                                                // Trigger a top-level navigation to the download endpoint
-                                                // which forces a download without replacing the current page in most browsers!
-                                                window.location.href = "/download-qr";
-                                                
-                                                // Fallback iframe download method
-                                                setTimeout(() => {
-                                                    const iframe = document.createElement('iframe');
-                                                    iframe.style.display = 'none';
-                                                    iframe.src = "/download-qr";
-                                                    document.body.appendChild(iframe);
-                                                }, 1000);
-                                            }
-                                        };
-                                    } else {
-                                        // Not ready yet, retry in 3 seconds
-                                        setTimeout(checkQR, 3000);
-                                    }
-                                })
-                                .catch(() => {
-                                    setTimeout(checkQR, 3000);
+                        socket.on('new_message', (data) => {
+                            if (count === 0) messageList.innerHTML = '';
+                            count++;
+                            msgCount.innerText = count + ' MESSAGES';
+
+                            const card = document.createElement('div');
+                            card.className = 'msg-card';
+                            card.innerHTML = \`
+                                <span class="msg-role role-\${data.role}">\${data.role === 'ai' ? '💎 MAZHAR AI REPLY' : '📩 WHATSAPP MESSAGE'}</span>
+                                <div class="msg-text">\${data.text}</div>
+                                <span class="msg-time">\${new Date().toLocaleTimeString()}</span>
+                            \`;
+                            messageList.prepend(card);
+
+                            // Detect URLs for the live preview link section
+                            const urls = data.text.match(/https?:\\/\\/[^\\s]+/gi);
+                            if (urls) {
+                                urls.forEach(url => {
+                                    const link = document.createElement('a');
+                                    link.className = 'url-card';
+                                    link.href = url;
+                                    link.target = '_blank';
+                                    link.innerText = '🔗 ' + url.substring(0, 40) + '...';
+                                    liveUrls.prepend(link);
                                 });
-                        }
+                            }
+                        });
 
-                        // Start checking immediately
-                        checkQR();
+                        socket.on('qr_update', () => {
+                            document.getElementById('qr-img').src = '/qr?t=' + Date.now();
+                            document.getElementById('qr-img').style.display = 'inline-block';
+                        });
                     </script>
                 </body>
                 </html>
-            `);
+            \`);
         }
     });
 
+    const io = new Server(server);
+
+    // Socket logic
+    io.on("connection", (socket) => {
+        // Send initial status request to index.js
+        events.emit("request_status");
+    });
+
+    // Listen to Global Events
+    events.on("wa_message", (data) => io.emit("new_message", { role: "whatsapp", text: data.text }));
+    events.on("ai_reply", (data) => io.emit("new_message", { role: "ai", text: data.text }));
+    events.on("wa_status", (status) => io.emit("connect_status", { status }));
+    events.on("wa_qr", () => io.emit("qr_update"));
+
     server.listen(PORT, "0.0.0.0", () => {
-        console.log(`🌐 [SYSTEM] Web Server running at port ${PORT}`);
-        console.log(`🔗 [SYSTEM] QR Page: /qr`);
+        console.log(\`🌐 [SYSTEM] Elite Dashboard running at port \${PORT}\`);
     });
 }
 

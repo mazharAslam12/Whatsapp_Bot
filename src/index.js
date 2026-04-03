@@ -2,11 +2,18 @@ require("dotenv").config();
 const { connectToWhatsApp } = require("./lib/whatsapp");
 const { handleMessage, handlePresence } = require("./handlers/message");
 const { startWebServer } = require("./services/web");
+const events = require("./lib/events");
 
 startWebServer();
 
 let conflictCounter = 0;
 let sock = null; // Global sock reference to manage state
+let currentStatus = "disconnected";
+
+// Sync Status with Dashboard
+events.on("request_status", () => {
+    events.emit("wa_status", currentStatus);
+});
 
 async function startSystem() {
     process.title = "Mazhar-DevX-Bot";
@@ -32,11 +39,15 @@ async function startSystem() {
 
             if (connection === "open") {
                 conflictCounter = 0; // Reset on success
+                currentStatus = "online";
+                events.emit("wa_status", "online");
                 console.log("✨ [SYSTEM] All systems operational.");
                 return;
             }
 
             if (connection === "close") {
+                currentStatus = "disconnected";
+                events.emit("wa_status", "disconnected");
                 const statusCode = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.statusCode;
 
                 // Detailed Conflict Detection

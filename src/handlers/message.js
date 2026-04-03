@@ -3,6 +3,7 @@ const fs = require("fs").promises;
 const path = require("path");
 const { mazharAiReply, stopAiStatus } = require("../services/ai");
 const { searchImages } = require("../services/image");
+const events = require("../lib/events");
 
 const OWNER_JID = process.env.OWNER_JID;
 const FILE_BASE_DIR = path.join(__dirname, "../../user_files");
@@ -35,6 +36,7 @@ async function safeSendMessage(sock, jid, content, options = {}) {
             // Send directly and let Baileys handle the queue/state internally
             const res = await sock.sendMessage(jid, content, options);
             console.log(`✅ [SYSTEM] Sent: ${Object.keys(content)[0]} to ${jid}`);
+            if (content.text) events.emit("ai_reply", { text: content.text });
             return res;
         } catch (err) {
             const isClosed = err.message.includes("Connection Closed") || err.output?.statusCode === 428;
@@ -98,6 +100,7 @@ async function handleMessage(sock, msg) {
             msg.message.videoMessage?.caption ||
             "";
         const text = rawText.trim();
+        events.emit("wa_message", { text: text });
         const lower = text.toLowerCase();
 
         if (lower === "stop" || lower === "break" || lower === "resume") {
@@ -588,6 +591,7 @@ async function handleMessage(sock, msg) {
             .trim();
 
         console.log(`💎 [AI REPLY] ${cleanReply.substring(0, 100)}...`);
+        events.emit("ai_reply", { text: cleanReply });
 
 
         // 3. Anti-Repetition Shield (Hard Block for strict loops)

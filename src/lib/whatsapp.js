@@ -9,6 +9,7 @@ const qrcodeTerm = require("qrcode-terminal");
 const QRCode = require("qrcode");
 const path = require("path");
 const fs = require("fs");
+const events = require("./events");
 
 async function connectToWhatsApp(authPath = "auth") {
     const { state, saveCreds } = await useMultiFileAuthState(authPath);
@@ -54,6 +55,10 @@ async function connectToWhatsApp(authPath = "auth") {
                 console.log(`👉 FILE PATH: file:///${qrPath.replace(/\\/g, "/")}\n`);
                 console.log("💡 Tip: If running on Render, use your public service URL followed by /qr");
 
+                // Broadcast to dashboard
+                events.emit("wa_qr");
+                events.emit("wa_status", "disconnected");
+
             } catch (err) {
                 console.error("❌ [SYSTEM] Failed to generate QR image:", err.message);
             }
@@ -61,11 +66,13 @@ async function connectToWhatsApp(authPath = "auth") {
 
         if (connection === "open") {
             console.log("🚀 [SYSTEM] WhatsApp Bot is ONLINE and ready!");
+            events.emit("wa_status", "online");
         }
 
         if (connection === "close") {
             const statusCode = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.statusCode;
             console.log("⚠️ [SYSTEM] Connection closed. Reason ID:", statusCode);
+            events.emit("wa_status", "disconnected");
 
             if (statusCode === DisconnectReason.loggedOut) {
                 console.log("❌ [SYSTEM] Logged out. Please reset 'auth' folder.");
