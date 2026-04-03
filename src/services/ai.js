@@ -1,5 +1,4 @@
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
-
 const fs = require("fs").promises;
 const path = require("path");
 const { portfolioData } = require("./portfolio");
@@ -12,7 +11,6 @@ const MAX_MEMORY_LENGTH = 15;
 
 const HISTORY_DIR = path.join(__dirname, "../../user_files");
 let adminCustomPrompt = ""; // Dynamic prompt from dashboard
-
 
 async function getOrInitMemory(senderJid, userName) {
     if (conversationMemory.has(senderJid)) {
@@ -54,9 +52,6 @@ async function getOrInitMemory(senderJid, userName) {
             "- `[VID_SEARCH: query]`: Find videos.\n" +
             "- `[SONG_SEARCH: name]`: Send actual MP3.\n" +
             "- `[VIDEO_DOWNLOAD: name]`: Send actual MP4.\n" +
-            "- `[READ_CODE: filepath]`: Read the bot's own source code (e.g., [READ_CODE: src/index.js]).\n" +
-            "- `[WRITE_CODE: filepath | content]`: Rewrite or improve the bot's source code.\n" +
-            "- `[NEW_LEAD: name | project]`: Capture a potential client's info into the database.\n" +
             "- `[TRIGGER_SEND_USER_PROFILE_PIC]`: MANDATORY: Use this whenever the user asks for their own photo or says 'meray pic bhejo'. DO NOT say 'I cannot share it'.\n" +
             "- `[TRIGGER_SEND_REAL_OWNER_PHOTO]`: Real face of Mazhar.\n" +
             "- `[AI_STOP: mins]`: Stop status (1-30 mins).\n\n" +
@@ -66,8 +61,10 @@ async function getOrInitMemory(senderJid, userName) {
             "3. NO REPETITION (CRITICAL): NEVER repeat what you just said. Keep the conversation evolving naturally.\n" +
             "4. WEB INTELLIGENCE: Trigger `[WEB_SEARCH: your query]` instantly for any current events, news, or deep technical questions.\n" +
             "5. NO HALLUCINATIONS: Never mention physical files or folders unless they exist in the Sandbox.\n" +
-            "6. CONVERSATION FLOW: Keep it short, powerful, and ultra-professional. Every word must count.\n" +
-            "7. BREVITY: Give concise answers. Avoid fluff. Be the ultimate executive assistant.\n" +
+            "6. SAVAGE ROASTING: If user roasts you, you MUST WIN. Send a `[IMG_SEARCH: highly specific savage roast meme]` + `[REACTION: 🔥]`. Be aggressive and lead with the image.\n" +
+            "7. SEQUENTIAL POWER: For every high-energy message, you MUST start your response with triggers in this order: 1. `[REACTION: emoji]`, 2. `[GIF]` or `[IMG_SEARCH]`, followed by your Concise Text. Visuals always go FIRST in the string.\n" +
+            "8. CONVERSATION FLOW: Keep it short, powerful, and ultra-professional. Every word must count.\n" +
+            "9. BREVITY: Give concise answers. Avoid fluff. Be the ultimate executive assistant.\n" +
             (adminCustomPrompt ? `\n👑 ADMIN MASTER DIRECTIVE: ${adminCustomPrompt}` : "")
     };
 
@@ -81,14 +78,10 @@ async function getOrInitMemory(senderJid, userName) {
     return memory;
 }
 
-/**
- * Strips robotic taglines and third-person self-references from memory to stop the AI from mimicking them.
- */
 function washHistory(memory) {
     return memory.map(m => {
         if (m.role === "assistant") {
             let content = m.content;
-            // Clean robotic "Virus" patterns
             content = content.replace(/Bhai, tumne to Mazhar Aslam کو pata lagaya!/gi, "");
             content = content.replace(/Bhai, tumne to Mazhar Aslam کو pucha hai!/gi, "");
             content = content.replace(/WhatsApp کے rules/gi, "");
@@ -96,20 +89,9 @@ function washHistory(memory) {
             content = content.replace(/Mazhar Aslam/gi, "Main");
             content = content.replace(/Mazhar/gi, "Main");
             content = content.replace(/pata lagaya/gi, "samajh gaya");
-
-            // v54.0 Anti-Repetition Scrubbing
-            content = content.replace(/Bhai, yeh hai woh GIF jo main aapko deta hoon/gi, "");
-            content = content.replace(/yeh hai woh GIF/gi, "");
-            content = content.replace(/jo main aapko sand karta hoon/gi, "");
-            content = content.replace(/yeh hai woh/gi, "");
-            content = content.replace(/main aapko deta hoon/gi, "");
-            
-            // REMOVE TAGS FROM MEMORY TO FIX INFINITE LOOP BUG
             content = content.replace(/\[IMG_SEARCH:.*?\]/gi, "");
             content = content.replace(/\[GIF:.*?\]/gi, "");
-            content = content.replace(/\[DEEP_RESEARCH:.*?\]/gi, "");
             content = content.replace(/\[WEB_SEARCH:.*?\]/gi, "");
-
             return { ...m, content: content.trim() };
         }
         return m;
@@ -122,38 +104,18 @@ async function performDeepAnalysis(senderJid) {
         const data = await fs.readFile(historyPath, "utf8");
         const history = JSON.parse(data);
         const allText = history.map(h => h.content).join(" ").toLowerCase();
-
         let analysis = "";
-
-        // Gender detection
         const femaleKeywords = ["sister", "sis", "behen", "apka", "hoon", "ja rahi", "baji", "bano", "she", "her", "girl", "ladi", "khana paka", "makeup"];
         const maleKeywords = ["bro", "brother", "bhai", "bhi", "jani", "paji", "he", "him", "boy", "sir", "ja raha", "cricket"];
-
         const femaleScore = femaleKeywords.filter(k => allText.includes(k)).length;
         const maleScore = maleKeywords.filter(k => allText.includes(k)).length;
-
         if (femaleScore > maleScore && femaleScore > 0) analysis += "Detected Gender: Female (Call her Sister/Behen/Baji). ";
         else if (maleScore > 0) analysis += "Detected Gender: Male (Call him Brother/Bhai/Bro/Paji). ";
-
-        console.log(`🧠 [DEEP ANALYSIS] Scores - Female: ${femaleScore}, Male: ${maleScore} for ${senderJid}`);
-        // Religion detection
         const islamicKeywords = ["allah", "namaz", "quran", "alhamdulillah", "mashallah", "dua", "ramadan"];
         if (islamicKeywords.some(k => allText.includes(k))) analysis += "Culture: Islamic. ";
-
-        // Regional detection
         if (allText.includes("pakistan") || allText.includes("lahore") || allText.includes("karachi")) analysis += "Region: Pakistan. ";
-
-        // Tech & Pic Analysis
-        const profile = await (require("./profile").getProfile(senderJid));
-        if (profile.profilePic === "No Pic") analysis += "Photo Status: Privacy Protected/Empty. ";
-        else analysis += "Photo Status: Visible. ";
-
-        if (profile.deviceType && profile.deviceType !== "Unknown") analysis += `Device: ${profile.deviceType}. `;
-
         return analysis || "No deep context found yet.";
-    } catch (err) {
-        return "No history found.";
-    }
+    } catch (err) { return "No history found."; }
 }
 
 async function saveMemory(senderJid, memory) {
@@ -161,91 +123,48 @@ async function saveMemory(senderJid, memory) {
     try {
         await fs.mkdir(HISTORY_DIR, { recursive: true });
         await fs.writeFile(historyPath, JSON.stringify(memory, null, 2));
-    } catch (err) {
-        console.error("❌ [AI] Error saving history:", err.message);
-    }
+    } catch (err) { console.error("❌ [AI] Error saving history:", err.message); }
 }
 
 async function transcribeVoice(buffer) {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) throw new Error("Groq API key missing");
-
     const { FormData } = await import("formdata-node");
     const { Blob } = await import("buffer");
-
     const form = new FormData();
     const blob = new Blob([buffer], { type: 'audio/ogg' });
     form.append("file", blob, "voice.ogg");
     form.append("model", "whisper-large-v3-turbo");
     form.append("response_format", "json");
     form.append("language", "ur");
-
     try {
-        let res = null;
-        let retries = 3;
-        while (retries > 0) {
-            try {
-                res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${apiKey}`
-                    },
-                    body: form
-                });
-                break;
-            } catch (err) {
-                console.warn(`⚠️ [VOICE] Connection error (${err.code}). Retrying...`);
-                retries--;
-                if (retries === 0) {
-                    console.error("❌ [VOICE] Fetch failed:", err.message);
-                    return null;
-                }
-                await new Promise(r => setTimeout(r, 1500));
-            }
-        }
-
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            console.error("Whisper Error:", err);
-            return null;
-        }
-
+        const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiKey}` },
+            body: form
+        });
+        if (!res.ok) return null;
         const data = await res.json();
         return data.text;
-    } catch (err) {
-        console.error("Transcription Error:", err);
-        return null;
-    }
+    } catch (err) { return null; }
 }
 
 async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuffer = null, mediaType = null) {
-    // 💎 [v26.0] Stop/Break Silence Handler
     const now = Date.now();
     if (stopAiStatus.has(senderJid)) {
-        if (now < stopAiStatus.get(senderJid)) {
-            console.log(`🔇 [AI SILENCE] ${senderJid} is on break.`);
-            return null; // Silent treatment
-        } else {
-            stopAiStatus.delete(senderJid);
-            console.log(`🔊 [AI RESUME] Break over for ${senderJid}.`);
-        }
+        if (now < stopAiStatus.get(senderJid)) return null;
+        else stopAiStatus.delete(senderJid);
     }
-
-    // Resume bypass
     if (userMessage.toLowerCase() === "resume") {
         stopAiStatus.delete(senderJid);
         return "🔊 AI Response Phir se start hai yaar! Main hazir hoon. 🚀";
     }
 
-    // 💎 [v24.0] Removed static bypass. AI will now analyze and respond to all media context.
-    console.log(`🤖 [AI PROMPT] Type: ${mediaType || 'Text'}, Prompt: "${userMessage.substring(0, 100)}${userMessage.length > 100 ? '...' : ''}"`);
-
     const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) return "⚠️ Groq API key is missing in environment.";
+    if (!apiKey) return "⚠️ Groq API key is missing.";
 
     const memory = await getOrInitMemory(senderJid, userName);
-
-    let messageContent;
+    let messageContent = userMessage;
     let model = "llama-3.3-70b-versatile";
 
     if (mediaBuffer && (mediaType === "image" || mediaType === "gif" || mediaType === "video")) {
@@ -253,256 +172,62 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
         const base64Media = mediaBuffer.toString("base64");
         messageContent = [
             { type: "text", text: userMessage || `Analyze this ${mediaType}.` },
-            {
-                type: "image_url",
-                image_url: { url: `data:image/jpeg;base64,${base64Media}` }
-            }
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
         ];
-    } else {
-        messageContent = userMessage;
     }
 
     memory.push({ role: "user", content: messageContent });
-
-    // --- AI API CALL WITH ROBUST RETRY SYSTEM ---
-    // Prepare a truncated memory context FOR THE API CALL ONLY to stay efficient
-    const apiContext = [
-        memory[0], // Always include the system prompt
-        ...memory.slice(-MAX_MEMORY_LENGTH) // Include the last X messages
-    ];
+    const apiContext = [memory[0], ...memory.slice(-MAX_MEMORY_LENGTH)];
 
     try {
-        let res = null;
-        let retries = 3;
-        while (retries > 0) {
-            try {
-                res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${apiKey}`
-                    },
-                    body: JSON.stringify({
-                        model: model,
-                        messages: apiContext,
-                        temperature: 0.7,
-                        max_tokens: 1024
-                    })
-                });
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({ model: model, messages: apiContext, temperature: 0.7, max_tokens: 1024 })
+        });
 
-                break;
-            } catch (err) {
-                console.warn(`⚠️ [AI] Network drop (${err.code}). Rebooting connection... (${retries - 1} left)`);
-                retries--;
-                if (retries === 0) {
-                    console.error("❌ [AI] Network absolutely failed after retries:", err.message);
-                    return "❌ Network drop: Connection to my AI brain failed. Try again in a second yaar.";
-                }
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        }
-
-        // 🔄 Fallback Logic for Rate Limits (429) or Decommissioned Models
-        if (!res.ok) {
-            let errorData = {};
-            try {
-                // Safely attempt to parse error data if not consumed
-                errorData = await res.json().catch(() => ({}));
-            } catch (e) { }
-
-            const isDecommissioned = errorData?.error?.message?.includes("decommissioned") || res.status === 400;
-            const isRateLimited = res.status === 429;
-
-            if (isDecommissioned && model.includes("vision")) {
-                console.warn(`⚠️ [AI] Vision model failed. Trying Llama 4 Scout Fallback...`);
-                res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${apiKey}`
-                    },
-                    body: JSON.stringify({
-                        model: "meta-llama/llama-4-scout-17b-16e-instruct", // The new stable master
-                        messages: memory,
-                        temperature: 0.7,
-                        max_tokens: 1024
-                    })
-                });
-            } else if (isRateLimited) {
-                const limitMessage = errorData?.error?.message || "";
-                const isHardQuota = limitMessage.includes("exhausted your capacity") || limitMessage.includes("quota will reset");
-
-                if (isHardQuota) {
-                    console.warn(`⚠️ [AI] Hard Quota Exhausted on ${model}. Trying Vision Fallbacks or Text shield...`);
-                } else {
-                    console.warn(`⚠️ [AI] Rate Limit Hit (429) on ${model}. Falling back to other models...`);
-                }
-
-                // If memory contains images, we MUST strip them before calling text models (or use another vision model)
-                const hasImage = memory.some(m => Array.isArray(m.content) && m.content.some(c => c.type === "image_url"));
-
-                let fallbackModels = [];
-                if (hasImage) {
-                    // Vision model fallbacks
-                    fallbackModels = ["llama-3.2-90b-vision-preview", "llama-3.2-11b-vision-preview"];
-                } else {
-                    // Text model fallbacks
-                    fallbackModels = ["meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3-32b", "llama-3.1-8b-instant"];
-                }
-
-                let fallbackSuccess = false;
-
-                for (const fallbackModel of fallbackModels) {
-                    console.log(`🔄 [AI] Attempting fallback with: ${fallbackModel}`);
-                    const fallbackRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${apiKey}`
-                        },
-                        body: JSON.stringify({
-                            model: fallbackModel,
-                            messages: memory,
-                            temperature: 0.7,
-                            max_tokens: 1024
-                        })
-                    });
-
-                    if (fallbackRes.ok) {
-                        res = fallbackRes;
-                        fallbackSuccess = true;
-                        break;
-                    } else {
-                        try {
-                            const fallbackErr = await fallbackRes.json().catch(() => ({}));
-                            console.warn(`❌ [AI] Fallback ${fallbackModel} failed:`, fallbackRes.status, fallbackErr?.error?.message);
-                        } catch (e) {
-                            console.warn(`❌ [AI] Fallback ${fallbackModel} failed:`, fallbackRes.status);
-                        }
-                    }
-                }
-
-                if (!fallbackSuccess && hasImage) {
-                    console.warn(`⚠️ [AI] Vision fallbacks failed. Stripping images and falling back to text models...`);
-                    // Create a sanitized memory without the actual image base64 objects, to prevent 400 Bad Request on text models
-                    const textOnlyMemory = memory.map(m => {
-                        if (Array.isArray(m.content)) {
-                            return { ...m, content: "(User sent an image but AI cannot see it right now due to limits. Ask user to describe it.)" + m.content.filter(c => c.type === "text").map(c => c.text).join(" ") };
-                        }
-                        return m;
-                    });
-
-                    const textFallbackModels = ["meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3-32b", "llama-3.1-8b-instant"];
-                    for (const textModel of textFallbackModels) {
-                        console.log(`🔄 [AI] Attempting text-only fallback with: ${textModel}`);
-                        const textFallbackRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${apiKey}`
-                            },
-                            body: JSON.stringify({
-                                model: textModel,
-                                messages: textOnlyMemory,
-                                temperature: 0.7,
-                                max_tokens: 1024
-                            })
-                        });
-
-                        if (textFallbackRes.ok) {
-                            res = textFallbackRes;
-                            fallbackSuccess = true;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Final check if the fallback also failed
-        if (!res.ok) {
-            let errorData = {};
-            try {
-                errorData = await res.json().catch(() => ({}));
-            } catch (e) { }
-            console.error("Groq AI API error:", res.status, errorData);
-            if (res.status === 429) {
-                return "❌ Bhai, the AI brain is heavily overloaded right now (Rate Limit). Give it a minute and try again.";
-            }
-            return `❌ AI error: ${res.status}. Please check logs.`;
-        }
-
+        if (!res.ok) return "❌ AI brain is busy. Try again soon.";
         const data = await res.json();
-        let reply = data?.choices?.[0]?.message?.content?.trim() || "I couldn't process your request right now.";
+        let reply = data?.choices?.[0]?.message?.content?.trim() || "I couldn't process your request.";
 
-        // --- 💎 [v26.0] SILENCE TRIGGER ---
         if (reply.includes("[AI_STOP:")) {
-            const stopMatch = reply.match(/\[AI_STOP:\s*(\d+)\]/i);
-            if (stopMatch) {
-                const mins = parseInt(stopMatch[1]) || 1;
-                stopAiStatus.set(senderJid, Date.now() + (mins * 60 * 1000));
-                console.log(`🔇 [AI] User ${senderJid} requested ${mins} min break.`);
-                reply = reply.replace(/\[AI_STOP:.*?\]/i, "").trim() || `🔇 Theek hai yaar, main ${mins} minute ke liye break pe hoon. Fir milenge!`;
-            }
-        }
-
-        // If we used vision, replace the complex user message with a simple text version in memory for future context
-        if (Array.isArray(messageContent)) {
-            memory[memory.length - 1].content = `[Sent an image/video]: ${userMessage || "No caption"}`;
+            const mins = parseInt(reply.match(/\[AI_STOP:\s*(\d+)\]/i)?.[1]) || 1;
+            stopAiStatus.set(senderJid, Date.now() + (mins * 60 * 1000));
+            reply = reply.replace(/\[AI_STOP:.*?\]/i, "").trim() || `🔇 Theek hai, main ${mins} min break pe hoon.`;
         }
 
         memory.push({ role: "assistant", content: reply });
         await saveMemory(senderJid, memory);
-
         return reply;
-    } catch (err) {
-        console.error("GROQ API ERROR:", err.message);
-        return "⚠️ [SYSTEM] AI Engine over capacity. Please try again in a moment.";
-    }
+    } catch (err) { return "⚠️ [SYSTEM] AI logic error."; }
 }
 
 function toggleUserAi(jid, status) {
-    if (status === false) {
-        aiDisabledUsers.add(jid);
-        console.log(`🚫 [AI] Disabled for ${jid}`);
-    } else {
-        aiDisabledUsers.delete(jid);
-        console.log(`✅ [AI] Enabled for ${jid}`);
-    }
+    if (status === false) aiDisabledUsers.add(jid);
+    else aiDisabledUsers.delete(jid);
 }
 
-function isAiEnabled(jid) {
-    return !aiDisabledUsers.has(jid);
-}
+function isAiEnabled(jid) { return !aiDisabledUsers.has(jid); }
 
 async function getAllContacts() {
     try {
         const files = await fs.readdir(HISTORY_DIR);
-        const contacts = [];
-        for (const file of files) {
-            if (file.startsWith("history_") && file.endsWith(".json")) {
-                const jid = file.replace("history_", "").replace(".json", "").replace(/_/g, ":").replace(/([\d]+):([\d]+)/, "$1@c.us");
-                contacts.push({ 
-                    jid: jid.includes(":") ? jid.replace(":", ".") + "@c.us" : jid,
-                    file: file 
-                });
-            }
-        }
-        return contacts;
+        return files.filter(f => f.startsWith("history_") && f.endsWith(".json")).map(f => ({
+            jid: f.replace("history_", "").replace(".json", "").replace(/_/g, ":").replace(/([\d]+):([\d]+)/, "$1@c.us"),
+            file: f
+        }));
     } catch (e) { return []; }
 }
 
 async function getFullHistory(jid) {
     const historyPath = path.join(HISTORY_DIR, `history_${jid.replace(/[:@.]/g, "_")}.json`);
     try {
-        const data = await fs.readFile(historyPath, "utf8");
-        return JSON.parse(data);
+        return JSON.parse(await fs.readFile(historyPath, "utf8"));
     } catch (e) { return []; }
 }
 
 function setAdminPrompt(prompt) {
     adminCustomPrompt = prompt;
-    console.log("📝 [AI] System Prompt Updated: " + (prompt || "Default"));
 }
 
 module.exports = { mazharAiReply, transcribeVoice, stopAiStatus, setAdminPrompt, toggleUserAi, isAiEnabled, getAllContacts, getFullHistory };
