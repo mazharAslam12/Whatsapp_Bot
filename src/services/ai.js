@@ -19,9 +19,12 @@ let adminCustomPrompt = ""; // Dynamic prompt from dashboard
         await fs.mkdir(HISTORY_DIR, { recursive: true });
         const data = await fs.readFile(MUTED_FILE, "utf8");
         data.split("\n").map(line => line.trim()).filter(Boolean).forEach(jid => aiDisabledUsers.add(jid));
-        console.log(`🛡️ [AI] Loaded ${aiDisabledUsers.size} muted users from disk.`);
+        // Targeted Hard-Mute: +966 55 429 5605 (per user request)
+        aiDisabledUsers.add("966554295605@c.us");
+        console.log(`🛡️ [AI] Loaded ${aiDisabledUsers.size} muted users (including target 🛡️).`);
     } catch (e) {
-        // File might not exist yet, that's okay
+        // Targeted Hard-Mute fallback even if file read fails
+        aiDisabledUsers.add("966554295605@c.us");
     }
 })();
 
@@ -193,7 +196,11 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             body: JSON.stringify({ model: model, messages: apiContext, temperature: 0.7, max_tokens: 1024 })
         });
 
-        if (!res.ok) return "❌ AI brain is busy. Try again soon.";
+        if (!res.ok) {
+            const errorText = await res.text();
+            console.error(`❌ [AI BRAIN BUSY] Groq Error: ${res.status} - ${errorText}`);
+            return "❌ AI brain is busy. Try again soon.";
+        }
         const data = await res.json();
         let reply = data?.choices?.[0]?.message?.content?.trim() || "I couldn't process your request.";
 

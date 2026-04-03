@@ -17,7 +17,7 @@ events.on("request_status", () => {
 
 // Handle Dashboard Replies
 events.on("send_whatsapp", async (data) => {
-    if (sock && (currentStatus === "online" || currentStatus === "connected")) {
+    if (sock) {
         try {
             await safeSendMessage(sock, data.jid, { text: data.text });
             console.log(`✅ [DASHBOARD] Reply sent to ${data.jid}`);

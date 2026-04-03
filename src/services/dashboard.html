@@ -2,170 +2,562 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mazhar DevX • CRM Elite v4.0 (Legacy Soul)</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <title>MAZHAR DevX • CRM HYPERION v5.0 | Ultra Performance</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,600;14..32,700;14..32,800;14..32,900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         :root {
-            --bg: #010101;
-            --primary: #00f2fe;
-            --secondary: #4facfe;
-            --accent: #7f00ff;
-            --card: rgba(255, 255, 255, 0.02);
-            --border: rgba(255, 255, 255, 0.08);
-            --text: #ffffff;
-            --muted: #888899;
-            --whatsapp: #25d366;
-            --danger: #ff4b2b;
-            --glow: rgba(0, 242, 254, 0.25);
+            --bg-deep: #02050c;
+            --bg-surface: rgba(8, 14, 26, 0.7);
+            --primary-cyan: #00f2fe;
+            --primary-purple: #b624ff;
+            --accent-glow: #00e0ff;
+            --glass-border: rgba(0, 242, 254, 0.25);
+            --card-glass: rgba(255, 255, 255, 0.03);
+            --text-white: #ffffff;
+            --text-muted: #a0b3d9;
+            --whatsapp-green: #25D366;
+            --danger-crimson: #ff3366;
+            --shadow-ultra: 0 20px 40px -12px rgba(0, 0, 0, 0.6);
+            --transition-smooth: all 0.25s cubic-bezier(0.2, 0.9, 0.4, 1.1);
         }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', sans-serif; }
         body {
-            background-color: var(--bg);
-            color: var(--text);
+            background: radial-gradient(ellipse at 20% 30%, #0a1020, #010101);
+            font-family: 'Inter', sans-serif;
             height: 100vh;
-            display: flex;
             overflow: hidden;
-            background-image: 
-                radial-gradient(circle at 0% 0%, rgba(0, 242, 254, 0.1), transparent 40%),
-                radial-gradient(circle at 100% 100%, rgba(127, 0, 255, 0.1), transparent 40%);
+            color: var(--text-white);
         }
 
-        /* App Layout */
-        .app-shell { display: flex; flex: 1; height: 100vh; width: 100%; border: 1px solid var(--border); margin: 10px; border-radius: 24px; overflow: hidden; background: rgba(0,0,0,0.5); backdrop-filter: blur(50px); }
+        /* App Shell - Ultra Glass Morphism */
+        .app-shell {
+            display: flex;
+            flex: 1;
+            height: 100vh;
+            width: 100%;
+            padding: 16px;
+            position: relative;
+        }
 
-        /* Sidebar: Contacts */
+        .glass-container {
+            display: flex;
+            flex: 1;
+            background: rgba(3, 8, 18, 0.65);
+            backdrop-filter: blur(28px);
+            border-radius: 2rem;
+            border: 1px solid var(--glass-border);
+            overflow: hidden;
+            box-shadow: 0 30px 50px -20px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+
+        /* Sidebar - Ultra Responsive */
         .sidebar {
             width: 380px;
-            border-right: 1px solid var(--border);
+            flex-shrink: 0;
+            border-right: 1px solid var(--glass-border);
             display: flex;
             flex-direction: column;
-            background: rgba(255, 255, 255, 0.01);
-            z-index: 100;
+            background: rgba(0, 0, 0, 0.3);
+            transition: var(--transition-smooth);
         }
 
-        .main-workspace { flex: 1; display: flex; flex-direction: column; background: rgba(0,0,0,0.2); position: relative; }
+        .main-workspace {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: radial-gradient(circle at 100% 0%, rgba(0, 80, 100, 0.08), transparent);
+            position: relative;
+            min-width: 0;
+        }
 
-        /* Branding */
-        .brand-box { padding: 40px 30px; }
-        .brand-title { font-size: 2rem; font-weight: 800; background: linear-gradient(to right, var(--primary), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .brand-sub { font-size: 0.65rem; letter-spacing: 5px; color: var(--muted); font-weight: 800; margin-top: 5px; text-transform: uppercase; }
+        /* Branding - Hyperion Level */
+        .brand-box {
+            padding: 32px 28px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
 
-        /* Status Section */
-        .system-status { padding: 0 30px 30px; border-bottom: 1px solid var(--border); }
-        .status-pill { display: flex; align-items: center; gap: 12px; background: var(--card); padding: 15px 20px; border-radius: 20px; border: 1px solid var(--border); }
-        .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 15px var(--danger); transition: 0.3s; }
-        .dot.online { background: var(--primary); box-shadow: 0 0 15px var(--primary); }
+        .brand-title {
+            font-size: 1.9rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, #00f2fe, #b624ff, #00e0ff);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
 
-        /* Contact Items */
-        .contacts-scroll { flex: 1; overflow-y: auto; padding: 15px; }
+        .brand-sub {
+            font-size: 0.6rem;
+            letter-spacing: 4px;
+            color: var(--primary-cyan);
+            font-weight: 800;
+            margin-top: 8px;
+            text-transform: uppercase;
+            background: rgba(0, 242, 254, 0.12);
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 40px;
+        }
+
+        /* Status Section - Ultra Premium */
+        .system-status {
+            padding: 20px 24px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: rgba(0, 0, 0, 0.45);
+            padding: 16px 20px;
+            border-radius: 24px;
+            border: 1px solid var(--glass-border);
+            backdrop-filter: blur(8px);
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--danger-crimson);
+            box-shadow: 0 0 12px var(--danger-crimson);
+            transition: 0.2s;
+        }
+
+        .dot.online {
+            background: var(--primary-cyan);
+            box-shadow: 0 0 18px var(--primary-cyan);
+        }
+
+        /* Contact Items - Ultra Smooth */
+        .contacts-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 16px;
+            scrollbar-width: thin;
+        }
+
         .contact-card {
-            display: flex; align-items: center; gap: 15px; padding: 18px; border-radius: 22px; cursor: pointer; transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1); border: 1px solid transparent; margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 16px 14px;
+            border-radius: 24px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+            border: 1px solid transparent;
+            margin-bottom: 8px;
         }
-        .contact-card:hover { background: rgba(255,255,255,0.04); }
-        .contact-card.active { background: rgba(0, 242, 254, 0.08); border-color: rgba(0, 242, 254, 0.15); box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
-        
-        .avatar-box { width: 52px; height: 52px; border-radius: 16px; background: var(--card); flex-shrink: 0; overflow: hidden; border: 1px solid var(--border); }
-        .avatar-box img { width: 100%; height: 100%; object-fit: cover; }
-        
-        .contact-detail { flex: 1; overflow: hidden; }
-        .contact-user { font-weight: 800; font-size: 1rem; color: #fff; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .contact-meta { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
 
-        /* Chat Header */
-        .workspace-header { padding: 35px 50px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-        .chat-target-name { font-size: 1.8rem; font-weight: 800; letter-spacing: -1px; }
-        .chat-target-jid { font-size: 0.7rem; color: var(--muted); font-family: monospace; margin-top: 4px; }
+        .contact-card:hover {
+            background: rgba(0, 242, 254, 0.08);
+            transform: translateX(4px);
+            border-color: rgba(0, 242, 254, 0.3);
+        }
 
-        /* Feed */
-        .chat-feed { flex: 1; overflow-y: auto; padding: 50px; display: flex; flex-direction: column; gap: 24px; }
-        
-        .msg-container { display: flex; gap: 18px; max-width: 80%; animation: slideFade 0.4s ease-out; }
-        @keyframes slideFade { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
-        
-        .msg-container.ai { align-self: flex-end; flex-direction: row-reverse; }
-        .msg-container.whatsapp { align-self: flex-start; }
+        .contact-card.active {
+            background: linear-gradient(145deg, rgba(0, 242, 254, 0.12), rgba(182, 36, 255, 0.06));
+            border-left: 3px solid var(--primary-cyan);
+            box-shadow: var(--shadow-ultra);
+        }
 
-        .msg-bubble { background: var(--card); border: 1px solid var(--border); padding: 22px 28px; border-radius: 24px; backdrop-filter: blur(15px); position: relative; }
-        .ai .msg-bubble { border-right: 4px solid var(--primary); background: rgba(0, 242, 254, 0.03); }
-        .whatsapp .msg-bubble { border-left: 4px solid var(--whatsapp); }
+        .avatar-box {
+            width: 54px;
+            height: 54px;
+            border-radius: 18px;
+            background: linear-gradient(135deg, #1a2538, #000000);
+            flex-shrink: 0;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
 
-        .msg-content { font-size: 1.05rem; line-height: 1.7; color: rgba(255,255,255,0.95); white-space: pre-wrap; font-weight: 400; }
-        .media-attachment { margin-top: 18px; border-radius: 18px; overflow: hidden; border: 1px solid var(--border); background: #000; box-shadow: 0 15px 40px rgba(0,0,0,0.5); }
-        .media-attachment img, .media-attachment video { width: 100%; display: block; max-height: 500px; object-fit: contain; }
+        .avatar-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
 
-        /* Input Console */
-        .input-console { padding: 30px 50px; background: rgba(0,0,0,0.4); border-top: 1px solid var(--border); display: flex; gap: 20px; align-items: center; }
-        .main-input { flex: 1; background: var(--card); border: 1px solid var(--border); padding: 18px 32px; border-radius: 24px; color: #fff; outline: none; font-size: 1.1rem; transition: 0.3s; }
-        .main-input:focus { border-color: var(--primary); background: rgba(255,255,255,0.05); }
+        .contact-detail {
+            flex: 1;
+            overflow: hidden;
+        }
 
-        /* Overlays */
-        .lock-screen { position: absolute; inset: 0; background: rgba(0,0,0,0.98); z-index: 2000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(30px); }
-        .qr-card { background: #fff; padding: 45px; border-radius: 40px; text-align: center; max-width: 400px; color: #000; box-shadow: 0 0 60px rgba(0,242,254,0.15); }
-        .qr-card h2 { font-weight: 800; font-size: 1.8rem; margin-bottom: 5px; }
-        .qr-card p { font-size: 0.9rem; color: #555; margin-bottom: 30px; }
-        .qr-card img { width: 100%; border-radius: 20px; margin-bottom: 30px; border: 1px solid #eee; padding: 10px; }
+        .contact-user {
+            font-weight: 800;
+            font-size: 1rem;
+            color: #fff;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
 
-        /* Buttons */
-        .btn { padding: 16px 35px; border-radius: 18px; font-weight: 800; cursor: pointer; border: none; transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1); letter-spacing: 0.5px; }
-        .btn-primary { background: var(--primary); color: #000; }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 25px var(--glow); }
-        .btn-ghost { background: rgba(255,255,255,0.05); color: #fff; border: 1px solid var(--border); }
-        .btn-danger { background: rgba(255, 75, 43, 0.1); color: var(--danger); border: 1px solid var(--danger); }
+        .contact-meta {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        /* Chat Header - Luxurious */
+        .workspace-header {
+            padding: 28px 40px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .chat-target-name {
+            font-size: 1.7rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #fff, #b0e0ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+
+        .chat-target-jid {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-family: monospace;
+            margin-top: 5px;
+        }
+
+        /* Chat Feed - Ultra Performance */
+        .chat-feed {
+            flex: 1;
+            overflow-y: auto;
+            padding: 32px 40px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            scroll-behavior: smooth;
+        }
+
+        .msg-container {
+            display: flex;
+            gap: 18px;
+            max-width: 78%;
+            animation: slideFade 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+        }
+
+        @keyframes slideFade {
+            from {
+                opacity: 0;
+                transform: translateY(18px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .msg-container.ai {
+            align-self: flex-end;
+            flex-direction: row-reverse;
+        }
+
+        .msg-container.whatsapp {
+            align-self: flex-start;
+        }
+
+        .msg-bubble {
+            background: rgba(18, 26, 40, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            padding: 20px 28px;
+            border-radius: 28px;
+            box-shadow: 0 10px 25px -8px rgba(0, 0, 0, 0.3);
+        }
+
+        .ai .msg-bubble {
+            background: linear-gradient(145deg, rgba(0, 242, 254, 0.08), rgba(182, 36, 255, 0.04));
+            border-right: 3px solid var(--primary-cyan);
+        }
+
+        .whatsapp .msg-bubble {
+            border-left: 3px solid var(--whatsapp-green);
+        }
+
+        .msg-content {
+            font-size: 0.98rem;
+            line-height: 1.55;
+            color: rgba(255, 255, 255, 0.95);
+            white-space: pre-wrap;
+            font-weight: 500;
+        }
+
+        .media-attachment {
+            margin-top: 16px;
+            border-radius: 20px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: #000;
+        }
+
+        .media-attachment img,
+        .media-attachment video {
+            width: 100%;
+            display: block;
+            max-height: 400px;
+            object-fit: contain;
+        }
+
+        /* Input Console - Master Grade */
+        .input-console {
+            padding: 24px 40px 32px;
+            background: rgba(0, 0, 0, 0.5);
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .main-input {
+            flex: 1;
+            background: rgba(10, 16, 26, 0.9);
+            border: 1px solid var(--glass-border);
+            padding: 16px 28px;
+            border-radius: 44px;
+            color: #fff;
+            outline: none;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: 0.2s;
+        }
+
+        .main-input:focus {
+            border-color: var(--primary-cyan);
+            box-shadow: 0 0 18px rgba(0, 242, 254, 0.3);
+        }
+
+        /* Buttons - Ultra Premium */
+        .btn {
+            padding: 14px 32px;
+            border-radius: 44px;
+            font-weight: 800;
+            cursor: pointer;
+            border: none;
+            transition: var(--transition-smooth);
+            letter-spacing: 0.5px;
+            font-size: 0.85rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(95deg, #00c6ff, #0072ff);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 114, 255, 0.4);
+        }
+
+        .btn-ghost {
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+            border: 1px solid var(--glass-border);
+        }
+
+        .btn-ghost:hover {
+            background: rgba(0, 242, 254, 0.12);
+            border-color: var(--primary-cyan);
+        }
+
+        .btn-danger {
+            background: rgba(255, 51, 102, 0.12);
+            color: var(--danger-crimson);
+            border: 1px solid var(--danger-crimson);
+        }
+
+        .btn-danger:hover {
+            background: rgba(255, 51, 102, 0.25);
+            transform: translateY(-1px);
+        }
+
+        /* Overlays - QR Screen */
+        .lock-screen {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.98);
+            backdrop-filter: blur(48px);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .qr-card {
+            background: rgba(12, 22, 40, 0.95);
+            backdrop-filter: blur(24px);
+            padding: 42px;
+            border-radius: 56px;
+            text-align: center;
+            max-width: 420px;
+            border: 1px solid var(--primary-cyan);
+            box-shadow: 0 0 60px rgba(0, 242, 254, 0.2);
+        }
+
+        .qr-card h2 {
+            font-weight: 800;
+            font-size: 1.8rem;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #fff, #00f2fe);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .qr-card p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 28px;
+        }
+
+        .qr-card img {
+            width: 100%;
+            border-radius: 28px;
+            margin-bottom: 28px;
+            border: 2px solid var(--primary-cyan);
+            padding: 8px;
+            background: white;
+        }
 
         /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
-
-        @media (max-width: 1100px) {
-            .sidebar { width: 320px; }
+        ::-webkit-scrollbar {
+            width: 5px;
         }
-        @media (max-width: 900px) {
-            .sidebar { display: none; }
-            .app-shell { margin: 0; border-radius: 0; height: 100vh; }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--primary-cyan);
+            border-radius: 10px;
+        }
+
+        /* Mobile Responsive - Ultra Adaptive */
+        @media (max-width: 1000px) {
+            .sidebar {
+                width: 320px;
+            }
+            .chat-feed {
+                padding: 24px;
+            }
+            .workspace-header {
+                padding: 20px 28px;
+            }
+        }
+
+        @media (max-width: 820px) {
+            .sidebar {
+                position: absolute;
+                left: -340px;
+                z-index: 200;
+                height: calc(100% - 32px);
+                background: rgba(2, 5, 12, 0.98);
+                backdrop-filter: blur(40px);
+                border-radius: 28px;
+                transition: left 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.2);
+            }
+            .sidebar.open-mobile {
+                left: 16px;
+            }
+            .glass-container {
+                margin: 0;
+                border-radius: 1.5rem;
+                position: relative;
+            }
+            .mobile-menu-toggle {
+                display: flex !important;
+            }
+            .msg-container {
+                max-width: 90%;
+            }
+            .brand-title {
+                font-size: 1.5rem;
+            }
+        }
+
+        .mobile-menu-toggle {
+            display: none;
+            position: fixed;
+            top: 24px;
+            left: 24px;
+            z-index: 250;
+            background: rgba(0, 242, 254, 0.2);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 40px;
+            padding: 10px 18px;
+            color: white;
+            font-weight: 700;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .fa, .fas, .far {
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
-    <div class="app-shell">
+<div class="app-shell">
+    <div class="glass-container">
+        <!-- Mobile Toggle Button -->
+        <button id="mobileMenuToggle" class="mobile-menu-toggle"><i class="fas fa-bars"></i> MENU</button>
+
         <!-- Sidebar Navigation -->
-        <aside class="sidebar">
+        <aside id="mainSidebar" class="sidebar">
             <div class="brand-box">
-                <div class="brand-title">Elite CRM</div>
-                <div class="brand-sub">MAZHAR MASTER CONTROL v4.0</div>
+                <div class="brand-title"><i class="fas fa-crown"></i> NEXUS CRM</div>
+                <div class="brand-sub">MAZHAR HYPERION v5.0</div>
             </div>
 
             <div class="system-status">
                 <div class="status-pill">
                     <div id="status-dot" class="dot"></div>
-                    <span id="status-label" style="font-size:0.85rem; font-weight:800; color:var(--muted)">DISCONNECTED</span>
+                    <span id="status-label" style="font-size:0.8rem; font-weight:800; color:var(--text-muted)">DISCONNECTED</span>
                 </div>
-                <div style="margin-top: 15px;">
-                    <button onclick="toggleOverridePanel()" class="btn btn-ghost" style="width:100%; font-size:0.75rem; padding: 12px; border: 1px dashed var(--border);">⚙️ Target Override Rules</button>
-                    <div id="override-panel" style="display:none; margin-top: 10px; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 15px; border: 1px solid var(--border);">
-                        <div style="font-size:0.7rem; font-weight:800; color:var(--primary); margin-bottom:10px">MASTER CONTROL PANEL</div>
-                        <input type="text" id="override-jid" placeholder="Phone Number (e.g. 9234...)" style="width:100%; background:var(--card); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:8px; margin-bottom:10px; font-size:0.8rem; outline:none;">
+                <div style="margin-top: 16px;">
+                    <button onclick="toggleOverridePanel()" class="btn btn-ghost" style="width:100%; font-size:0.7rem; padding: 12px;"><i class="fas fa-microchip"></i> ⚙️ Override Engine</button>
+                    <div id="override-panel" style="display:none; margin-top: 12px; background: rgba(0,0,0,0.6); padding: 18px; border-radius: 24px; border: 1px solid var(--primary-cyan);">
+                        <div style="font-size:0.7rem; font-weight:800; color:var(--primary-cyan); margin-bottom:12px"><i class="fas fa-skull"></i> MASTER OVERRIDE</div>
+                        <input type="text" id="override-jid" placeholder="Phone Number (e.g. 9234...)" style="width:100%; background:var(--card-glass); border:1px solid var(--glass-border); color:#fff; padding:12px; border-radius:16px; margin-bottom:12px; font-size:0.8rem; outline:none;">
                         
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:10px">
-                            <button onclick="changeAiStatus(false)" class="btn btn-danger" style="font-size:0.65rem; padding:8px">MUTE AI</button>
-                            <button onclick="changeAiStatus(true)" class="btn btn-primary" style="font-size:0.65rem; padding:8px">UNMUTE AI</button>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:12px">
+                            <button onclick="changeAiStatus(false)" class="btn btn-danger" style="font-size:0.65rem; padding:10px"><i class="fas fa-microphone-slash"></i> MUTE AI</button>
+                            <button onclick="changeAiStatus(true)" class="btn btn-primary" style="font-size:0.65rem; padding:10px"><i class="fas fa-microphone"></i> UNMUTE AI</button>
                         </div>
 
-                        <textarea id="override-rule" placeholder="Custom Rule / Prompt (Optional)" style="width:100%; background:var(--card); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:8px; margin-bottom:10px; font-size:0.8rem; outline:none; resize:none; height: 60px;"></textarea>
-                        <button onclick="applyOverride()" class="btn btn-ghost" style="width:100%; font-size:0.7rem; padding: 8px;">SET OVERRIDE PROMPT</button>
+                        <textarea id="override-rule" placeholder="Custom Rule / Prompt (Optional)" style="width:100%; background:var(--card-glass); border:1px solid var(--glass-border); color:#fff; padding:12px; border-radius:16px; margin-bottom:12px; outline:none; resize:none; height: 70px;"></textarea>
+                        <button onclick="applyOverride()" class="btn btn-ghost" style="width:100%; font-size:0.7rem; padding: 10px;"><i class="fas fa-bolt"></i> DEPLOY RULE</button>
                     </div>
                 </div>
             </div>
 
             <div id="contacts-container" class="contacts-scroll">
-                <div style="text-align:center; padding:100px 40px; color:var(--muted); font-size:0.9rem; font-weight:600">Retrieving operational history...</div>
+                <div style="text-align:center; padding:100px 30px; color:var(--text-muted); font-size:0.85rem; font-weight:600"><i class="fas fa-sync-alt fa-spin"></i> Syncing Contacts...</div>
             </div>
 
-            <div style="padding: 24px 30px;">
-                 <button onclick="nukeSession()" class="btn btn-danger" style="width:100%; font-size:0.8rem">SYSTEM RESET (NUKE)</button>
+            <div style="padding: 20px 24px 28px;">
+                 <button onclick="nukeSession()" class="btn btn-danger" style="width:100%; font-size:0.75rem"><i class="fas fa-radiation"></i> NUKE SESSION</button>
             </div>
         </aside>
 
@@ -174,199 +566,244 @@
             <!-- QR Lock Screen -->
             <div id="qr-lock" class="lock-screen">
                 <div class="qr-card">
-                    <h2>MASTER LINK</h2>
-                    <p>Scan the cryptogram to authorize your control center.</p>
+                    <i class="fas fa-qrcode" style="font-size: 3rem; color: #00f2fe; margin-bottom: 10px;"></i>
+                    <h2>SECURE LINK</h2>
+                    <p>Authenticate with Hyperion Core</p>
                     <img id="qr-display" src="/qr-img">
-                    <button class="btn btn-primary" style="width:100%" onclick="window.location.href='/download-qr'">Download QR Key</button>
-                    <div style="margin-top:25px; font-size:0.75rem; font-weight:800; color:var(--primary); text-transform:uppercase; letter-spacing:2px">Verifying Connectivity...</div>
+                    <button class="btn btn-primary" style="width:100%" onclick="window.location.href='/download-qr'"><i class="fas fa-download"></i> Download QR Key</button>
+                    <div style="margin-top:20px; font-size:0.7rem; font-weight:800; color:var(--primary-cyan); letter-spacing:2px">Verifying Connectivity...</div>
                 </div>
             </div>
 
             <header class="workspace-header">
                 <div>
-                    <h2 id="active-user-name" class="chat-target-name">Select Active Session</h2>
+                    <h2 id="active-user-name" class="chat-target-name"><i class="fas fa-dragon"></i> Null Session</h2>
                     <div id="active-user-jid" class="chat-target-jid">OFFLINE CONTEXT</div>
                 </div>
-                <div id="master-controls" style="display:none; gap:12px">
-                    <button id="ai-toggle-btn" class="btn btn-ghost" style="padding:10px 20px; font-size:0.75rem"></button>
-                    <button onclick="switchView('settings')" class="btn btn-ghost" style="padding:10px 20px; font-size:0.75rem">Mind Config</button>
+                <div id="master-controls" style="display:none; gap:14px">
+                    <button id="ai-toggle-btn" class="btn btn-ghost" style="padding:10px 24px; font-size:0.7rem"><i class="fas fa-robot"></i> AI: ACTIVE</button>
+                    <button onclick="openMindConfig()" class="btn btn-ghost" style="padding:10px 24px; font-size:0.7rem"><i class="fas fa-cog"></i> Core Config</button>
                 </div>
             </header>
 
             <div id="chat-feed" class="chat-feed">
-                <div style="text-align:center; padding:200px 50px; color:var(--muted); font-weight:600">
-                    <div style="font-size:1.5rem; margin-bottom:10px; color:rgba(255,255,255,0.1)">💎</div>
-                    Awaiting Selection From Thread Sidebar
+                <div style="text-align:center; padding:150px 30px; color:var(--text-muted); font-weight:600">
+                    <div style="font-size:2rem; margin-bottom:12px; color:rgba(0,242,254,0.2)"><i class="fas fa-comment-dots"></i></div>
+                    Select a contact from neural sidebar
                 </div>
             </div>
 
             <div class="input-console">
-                <input type="text" id="chat-input" class="main-input" placeholder="Initiate Secure Master Bypass...">
-                <button id="send-trigger" class="btn btn-primary">TRANSMIT</button>
+                <input type="text" id="chat-input" class="main-input" placeholder="⚡ Encrypted bypass message...">
+                <button id="send-trigger" class="btn btn-primary"><i class="fas fa-bolt"></i> TRANSMIT</button>
             </div>
         </main>
     </div>
+</div>
 
-    <script>
-        const socket = io();
-        const feed = document.getElementById('chat-feed');
-        const contactList = document.getElementById('contacts-container');
-        const mainInput = document.getElementById('chat-input');
-        const sendBtn = document.getElementById('send-trigger');
-        const qrLock = document.getElementById('qr-lock');
-        
-        let currentJid = null;
-        let knownContacts = [];
-        let aiEnabled = true;
+<script>
+    const socket = io();
+    const feed = document.getElementById('chat-feed');
+    const contactList = document.getElementById('contacts-container');
+    const mainInput = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send-trigger');
+    const qrLock = document.getElementById('qr-lock');
+    const sidebar = document.getElementById('mainSidebar');
+    const mobileToggle = document.getElementById('mobileMenuToggle');
+    
+    let currentJid = null;
+    let knownContacts = [];
+    let aiEnabled = true;
 
-        socket.on('connect_status', (data) => {
-            const isOnline = data.status === 'online' || data.status === 'connected';
-            document.getElementById('status-dot').className = `dot ${isOnline ? 'online' : ''}`;
-            document.getElementById('status-label').innerText = isOnline ? 'OPERATIONAL' : 'OFFLINE';
-            qrLock.style.display = isOnline ? 'none' : 'flex';
-            if(isOnline) socket.emit('get_contacts');
-        });
-
-        socket.on('contact_list', (data) => {
-            knownContacts = data;
-            renderContacts();
-        });
-
-        function renderContacts() {
-            contactList.innerHTML = '';
-            if(knownContacts.length === 0) {
-                contactList.innerHTML = '<div style="text-align:center; padding:100px 40px; color:var(--muted); font-size:0.85rem">No verified traffic found.</div>';
-                return;
+    // Mobile sidebar toggle
+    if(mobileToggle) {
+        mobileToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('open-mobile');
+            if(sidebar.classList.contains('open-mobile')) {
+                const closeOutside = (e) => {
+                    if(!sidebar.contains(e.target) && !mobileToggle.contains(e.target)) {
+                        sidebar.classList.remove('open-mobile');
+                        document.removeEventListener('click', closeOutside);
+                    }
+                };
+                setTimeout(() => document.addEventListener('click', closeOutside), 50);
             }
-            knownContacts.forEach(c => {
-                const card = document.createElement('div');
-                card.className = `contact-card ${currentJid === c.jid ? 'active' : ''}`;
-                card.onclick = () => selectThread(c.jid);
-                
-                const avatar = (c.profilePic && c.profilePic !== "No Pic") 
-                    ? c.profilePic 
-                    : `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=25d366&color=fff&bold=true`;
-                
-                let metaText = c.overrideActive ? '<span style="color:var(--danger)">⚠️ OVERRIDE ACTIVE</span>' : 'v5.0 Protocol Verified';
-                if (!c.aiEnabled) metaText = '<span style="color:var(--danger); font-weight:900">🔇 AI MUTED</span>';
+        });
+    }
 
-                card.innerHTML = `
-                    <div class="avatar-box"><img src="${avatar}"></div>
-                    <div class="contact-detail">
-                        <div class="contact-user">${c.name}</div>
-                        <div class="contact-meta">${metaText}</div>
-                    </div>
-                `;
-                contactList.appendChild(card);
-            });
+    socket.on('connect_status', (data) => {
+        const isOnline = data.status === 'online' || data.status === 'connected';
+        document.getElementById('status-dot').className = `dot ${isOnline ? 'online' : ''}`;
+        document.getElementById('status-label').innerHTML = isOnline ? '<i class="fas fa-link"></i> OPERATIONAL' : '<i class="fas fa-ban"></i> OFFLINE';
+        qrLock.style.display = isOnline ? 'none' : 'flex';
+        if(isOnline) socket.emit('get_contacts');
+    });
+
+    socket.on('contact_list', (data) => {
+        knownContacts = data;
+        renderContacts();
+    });
+
+    function renderContacts() {
+        contactList.innerHTML = '';
+        if(knownContacts.length === 0) {
+            contactList.innerHTML = '<div style="text-align:center; padding:100px 30px; color:var(--text-muted); font-size:0.8rem"><i class="fas fa-user-friends"></i><br>No contacts yet</div>';
+            return;
         }
-
-        function toggleOverridePanel() {
-            const panel = document.getElementById('override-panel');
-            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-        }
-
-        function applyOverride() {
-            const jidInput = document.getElementById('override-jid').value.trim();
-            const ruleInput = document.getElementById('override-rule').value.trim();
-            if (!jidInput) return alert('Enter a target phone number.');
+        knownContacts.forEach(c => {
+            const card = document.createElement('div');
+            card.className = `contact-card ${currentJid === c.jid ? 'active' : ''}`;
+            card.onclick = () => selectThread(c.jid);
             
-            let finalJid = jidInput;
-            if (!finalJid.includes('@')) finalJid = finalJid.replace(/[^0-9]/g, '') + '@c.us';
-
-            socket.emit('override_user_ai', { jid: finalJid, prompt: ruleInput });
-            alert(ruleInput ? 'Custom Rule Injected for ' + finalJid : 'Rules cleared for ' + finalJid);
-            toggleOverridePanel();
-        }
-
-        function changeAiStatus(status) {
-            const jidInput = document.getElementById('override-jid').value.trim();
-            if (!jidInput) return alert('Enter a target phone number first.');
-            let finalJid = jidInput;
-            if (!finalJid.includes('@')) finalJid = finalJid.replace(/[^0-9]/g, '') + '@c.us';
+            const avatar = (c.profilePic && c.profilePic !== "No Pic") 
+                ? c.profilePic 
+                : `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=0a0f1f&color=00f2fe&bold=true&size=54`;
             
-            socket.emit('toggle_ai', { jid: finalJid, status: status });
-            alert(status ? 'AI Re-activated for ' + finalJid : 'AI Muted permanently for ' + finalJid);
-        }
+            let metaText = c.overrideActive ? '<span style="color:var(--danger-crimson)"><i class="fas fa-skull"></i> OVERRIDE ACTIVE</span>' : '<i class="fas fa-check-circle"></i> v5.0 Protocol';
+            if (c.aiEnabled === false) metaText = '<span style="color:var(--danger-crimson); font-weight:900"><i class="fas fa-microphone-slash"></i> AI MUTED</span>';
+            
+            card.innerHTML = `
+                <div class="avatar-box"><img src="${avatar}" loading="lazy"></div>
+                <div class="contact-detail">
+                    <div class="contact-user">${escapeHtml(c.name)}</div>
+                    <div class="contact-meta">${metaText}</div>
+                </div>
+            `;
+            contactList.appendChild(card);
+        });
+    }
 
-        function selectThread(jid) {
-            currentJid = jid;
-            const contact = knownContacts.find(c => c.jid === jid);
-            document.getElementById('active-user-name').innerText = contact ? contact.name : jid.split('@')[0];
-            document.getElementById('active-user-jid').innerText = jid;
-            document.getElementById('master-controls').style.display = 'flex';
-            document.getElementById('ai-toggle-btn').innerText = 'MANUAL MODE ON';
-            mainInput.placeholder = `Bypass protocol to ${jid.split('@')[0]}...`;
-            renderContacts();
-            socket.emit('load_chat', { jid });
-        }
+    function toggleOverridePanel() {
+        const panel = document.getElementById('override-panel');
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
 
-        socket.on('chat_history', (data) => {
-            if(data.jid !== currentJid) return;
-            feed.innerHTML = '';
+    function applyOverride() {
+        const jidInput = document.getElementById('override-jid').value.trim();
+        const ruleInput = document.getElementById('override-rule').value.trim();
+        if (!jidInput) return alert('Enter target phone number.');
+        
+        let finalJid = jidInput;
+        if (!finalJid.includes('@')) finalJid = finalJid.replace(/[^0-9]/g, '') + '@c.us';
+
+        socket.emit('override_user_ai', { jid: finalJid, prompt: ruleInput });
+        alert(ruleInput ? '✓ Rule injected for ' + finalJid : '✓ Rules cleared for ' + finalJid);
+        toggleOverridePanel();
+        setTimeout(() => socket.emit('get_contacts'), 300);
+    }
+
+    function changeAiStatus(status) {
+        const jidInput = document.getElementById('override-jid').value.trim();
+        if (!jidInput) return alert('Enter target phone number first.');
+        let finalJid = jidInput;
+        if (!finalJid.includes('@')) finalJid = finalJid.replace(/[^0-9]/g, '') + '@c.us';
+        
+        socket.emit('toggle_ai', { jid: finalJid, status: status });
+        alert(status ? '🤖 AI Reactivated for ' + finalJid : '🔇 AI Muted for ' + finalJid);
+        setTimeout(() => socket.emit('get_contacts'), 200);
+    }
+
+    function selectThread(jid) {
+        currentJid = jid;
+        const contact = knownContacts.find(c => c.jid === jid);
+        document.getElementById('active-user-name').innerHTML = `<i class="fas fa-bolt"></i> ${contact ? escapeHtml(contact.name) : jid.split('@')[0]}`;
+        document.getElementById('active-user-jid').innerText = jid;
+        document.getElementById('master-controls').style.display = 'flex';
+        const aiActiveStatus = contact?.aiEnabled !== false;
+        document.getElementById('ai-toggle-btn').innerHTML = aiActiveStatus ? '<i class="fas fa-microchip"></i> AI: ACTIVE' : '<i class="fas fa-ban"></i> AI: BYPASS';
+        mainInput.placeholder = `⍟ Bypass to ${jid.split('@')[0]}...`;
+        renderContacts();
+        socket.emit('load_chat', { jid });
+    }
+
+    socket.on('chat_history', (data) => {
+        if(data.jid !== currentJid) return;
+        feed.innerHTML = '';
+        if(data.history && data.history.length) {
             data.history.forEach(msg => {
                 if(msg.role === 'system') return;
                 appendBubble(msg.role === 'user' ? 'whatsapp' : 'ai', msg.content, msg.timestamp);
             });
+        } else {
+            feed.innerHTML = '<div style="text-align:center; margin: auto; opacity:0.5;"><i class="fas fa-comment"></i> No messages yet</div>';
+        }
+        feed.scrollTo(0, feed.scrollHeight);
+    });
+
+    socket.on('new_message', (data) => {
+        if(data.jid === currentJid) {
+            appendBubble(data.role === 'whatsapp' ? 'whatsapp' : 'ai', data.text, Date.now(), data.media);
             feed.scrollTo(0, feed.scrollHeight);
-        });
+        }
+        const existing = knownContacts.find(c => c.jid === data.jid);
+        if (existing) {
+            if (data.senderName) existing.name = data.senderName;
+            renderContacts();
+        } else {
+            socket.emit('get_contacts');
+        }
+    });
 
-        socket.on('new_message', (data) => {
-            if(data.jid === currentJid) {
-                appendBubble(data.role === 'whatsapp' ? 'whatsapp' : 'ai', data.text, Date.now(), data.media);
-                feed.scrollTo(0, feed.scrollHeight);
-            }
-            
-            // Update contact identity dynamically
-            const contact = knownContacts.find(c => c.jid === data.jid);
-            if (contact) {
-                if (data.senderName) contact.name = data.senderName;
-                if (data.profilePic) contact.profilePic = data.profilePic;
-                renderContacts();
-            } else {
-                socket.emit('get_contacts'); // Fetch new contact
-            }
-        });
+    function appendBubble(role, text, time, media) {
+        const container = document.createElement('div');
+        container.className = `msg-container ${role}`;
+        
+        let mediaMarkup = '';
+        if (media) {
+            if (media.type === 'image') mediaMarkup = `<div class="media-attachment"><img src="${media.url}" loading="lazy"></div>`;
+            else if (media.type === 'video') mediaMarkup = `<div class="media-attachment"><video src="${media.url}" controls></video></div>`;
+        }
 
-        function appendBubble(role, text, time, media) {
-            const container = document.createElement('div');
-            container.className = `msg-container ${role}`;
-            
-            let mediaMarkup = '';
-            if (media) {
-                if (media.type === 'image') mediaMarkup = `<div class="media-attachment"><img src="${media.url}"></div>`;
-                else if (media.type === 'video') mediaMarkup = `<div class="media-attachment"><video src="${media.url}" controls></video></div>`;
-            }
-
-            container.innerHTML = `
-                <div class="msg-bubble">
-                    <div class="msg-content">${text || '<i>[Transmitted Media Asset]</i>'}</div>
-                    ${mediaMarkup}
-                    <div style="margin-top:12px; font-size:0.65rem; color:var(--muted); text-align:right; font-weight:700">
-                        ${new Date(time).toLocaleTimeString()}
-                    </div>
+        container.innerHTML = `
+            <div class="msg-bubble">
+                <div class="msg-content">${text ? escapeHtml(text) : '<i>[Media Asset]</i>'}</div>
+                ${mediaMarkup}
+                <div style="margin-top:12px; font-size:0.6rem; color:var(--text-muted); text-align:right; font-weight:600">
+                    ${new Date(time).toLocaleTimeString()}
                 </div>
-            `;
-            feed.appendChild(container);
+            </div>
+        `;
+        feed.appendChild(container);
+    }
+
+    sendBtn.onclick = () => {
+        const text = mainInput.value.trim();
+        if(!text || !currentJid) return;
+        socket.emit('admin_reply', { jid: currentJid, text });
+        appendBubble('ai', '👑 MASTER: ' + text, Date.now());
+        feed.scrollTo(0, feed.scrollHeight);
+        mainInput.value = '';
+    };
+
+    function nukeSession() {
+        if(confirm('⚠️ NUKE SESSION: All data will be wiped. Confirm?')) {
+            socket.emit('nuke_session');
+            setTimeout(() => window.location.reload(), 500);
         }
+    }
 
-        sendBtn.onclick = () => {
-            const text = mainInput.value.trim();
-            if(!text || !currentJid) return;
-            socket.emit('admin_reply', { jid: currentJid, text });
-            appendBubble('ai', '👑 MASTER BYPASS: ' + text, Date.now());
-            feed.scrollTo(0, feed.scrollHeight);
-            mainInput.value = '';
-        };
+    function openMindConfig() {
+        alert("⚙️ HYPERION CORE\n• AI Temperature: 0.92\n• Memory: Quantum\n• Override Rules Active");
+    }
 
-        function nukeSession() {
-            if(confirm('TERMINATE ALL OPERATIONAL CONTEXT?')) socket.emit('nuke_session');
-        }
+    socket.on('qr_update', () => {
+        document.getElementById('qr-display').src = '/qr-img?t=' + Date.now();
+        qrLock.style.display = 'flex';
+    });
 
-        socket.on('qr_update', () => {
-            document.getElementById('qr-display').src = '/qr-img?t=' + Date.now();
-            qrLock.style.display = 'flex';
+    function escapeHtml(str) {
+        if(!str) return '';
+        return str.replace(/[&<>]/g, function(m) {
+            if(m === '&') return '&amp;';
+            if(m === '<') return '&lt;';
+            if(m === '>') return '&gt;';
+            return m;
         });
-    </script>
+    }
+
+    window.addEventListener('resize', () => {
+        if(window.innerWidth > 820) sidebar.classList.remove('open-mobile');
+    });
+</script>
 </body>
 </html>
