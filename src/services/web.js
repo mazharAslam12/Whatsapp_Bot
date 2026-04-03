@@ -6,6 +6,7 @@ const events = require("../lib/events");
 
 const PORT = process.env.PORT || 3000;
 const QR_PATH = path.join(process.cwd(), "user_files", "login-qr.png");
+const DASHBOARD_HTML = path.join(__dirname, "dashboard.html");
 
 function startWebServer() {
     const server = http.createServer((req, res) => {
@@ -29,187 +30,14 @@ function startWebServer() {
                 res.end("QR not found.");
             }
         } else {
-            res.writeHead(200, { "Content-Type": "text/html" });
-            res.end(`
-                <!DOCTYPE html>
-                <html lang="en">
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Mazhar DevX • Elite Dashboard</title>
-                    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
-                    <script src="/socket.io/socket.io.js"></script>
-                    <style>
-                        :root {
-                            --bg-color: #030303;
-                            --primary: #00f2fe;
-                            --secondary: #4facfe;
-                            --accent: #7f00ff;
-                            --card: rgba(255, 255, 255, 0.05);
-                            --border: rgba(255, 255, 255, 0.1);
-                            --text: #ffffff;
-                            --muted: #a0a0ab;
-                        }
-                        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', sans-serif; }
-                        body {
-                            background-color: var(--bg-color);
-                            color: var(--text);
-                            min-height: 100vh;
-                            overflow: hidden;
-                            background-image: 
-                                radial-gradient(circle at 10% 20%, rgba(0, 242, 254, 0.1), transparent 30%),
-                                radial-gradient(circle at 90% 80%, rgba(127, 0, 255, 0.1), transparent 30%);
-                        }
-                        .dashboard {
-                            display: grid;
-                            grid-template-columns: 280px 1fr 320px;
-                            height: 100vh;
-                            gap: 1px;
-                            background: var(--border);
-                        }
-                        .sidebar, .feed, .stats { background: var(--bg-color); padding: 24px; overflow-y: auto; }
-                        .brand { font-size: 1.5rem; font-weight: 800; margin-bottom: 4px; background: linear-gradient(135deg, var(--secondary), var(--primary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-                        .version { font-size: 0.75rem; color: var(--muted); margin-bottom: 32px; letter-spacing: 1px; }
-                        
-                        /* Status Cards */
-                        .status-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 20px; background: rgba(0, 0, 0, 0.5); border: 1px solid var(--border); font-size: 0.85rem; font-weight: 600; margin-bottom: 24px; }
-                        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ff4b2b; box-shadow: 0 0 10px #ff4b2b; animation: pulse 2s infinite; }
-                        .status-dot.online { background: #00f2fe; box-shadow: 0 0 10px #00f2fe; }
-                        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-
-                        /* Feed */
-                        .feed-header { margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
-                        .feed-title { font-size: 1.25rem; font-weight: 600; }
-                        .message-list { display: flex; flex-direction: column; gap: 16px; }
-                        .msg-card { background: var(--card); border: 1px solid var(--border); padding: 16px; border-radius: 16px; animation: fadeIn 0.4s ease forwards; position: relative; }
-                        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-                        .msg-role { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; display: block; }
-                        .role-whatsapp { color: #25d366; }
-                        .role-ai { color: var(--primary); }
-                        .msg-text { font-size: 0.95rem; line-height: 1.5; color: #ddd; word-break: break-word; }
-                        .msg-time { font-size: 0.7rem; color: var(--muted); margin-top: 8px; display: block; opacity: 0.5; }
-
-                        /* QR Section */
-                        .qr-section { background: var(--card); border-radius: 24px; padding: 24px; text-align: center; border: 1px solid var(--primary); margin-bottom: 24px; }
-                        .qr-image { width: 100%; max-width: 200px; border-radius: 12px; margin: 16px 0; background: #fff; padding: 8px; transition: transform 0.3s ease; }
-                        .btn-download { display: block; padding: 10px; background: var(--primary); color: #000; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 0.85rem; margin-top: 12px; }
-
-                        .url-list { margin-top: 24px; }
-                        .url-card { display: block; padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px; text-decoration: none; color: var(--primary); font-size: 0.85rem; margin-bottom: 8px; transition: background 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-                        .url-card:hover { background: rgba(255,255,255,0.08); }
-
-                        /* Custom Scrollbar */
-                        ::-webkit-scrollbar { width: 6px; }
-                        ::-webkit-scrollbar-track { background: transparent; }
-                        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
-                    </style>
-                </head>
-                <body>
-                    <div class="dashboard">
-                        <div class="sidebar">
-                            <div class="brand">Mazhar DevX</div>
-                            <div class="version">ELITE V2.0 PLATFORM</div>
-                            
-                            <div class="status-pill">
-                                <div id="status-dot" class="status-dot"></div>
-                                <span id="status-text">DISCONNECTED</span>
-                            </div>
-
-                            <nav style="display:flex; flex-direction:column; gap:8px;">
-                                <div style="color:var(--muted); font-size:0.75rem; font-weight:700; margin:16px 0 8px;">CONTROLS</div>
-                                <div class="url-card" style="color:#fff; cursor:default">🚀 Railway Ready</div>
-                                <div class="url-card" style="color:#fff; cursor:default">💎 Socket Engine Active</div>
-                            </nav>
-                        </div>
-
-                        <div class="feed">
-                            <div class="feed-header">
-                                <h2 class="feed-title">Live Message Stream</h2>
-                                <span id="msg-count" style="font-size:0.8rem; color:var(--muted); font-weight:600">0 MESSAGES</span>
-                            </div>
-                            <div id="message-list" class="message-list">
-                                <!-- Messages injected here -->
-                                <div class="msg-card" style="text-align:center; color:var(--muted);">
-                                    Waiting for live activity...
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="stats">
-                             <div id="qr-container" class="qr-section">
-                                <h3 style="font-size:1rem; font-weight:700;">QR AUTH</h3>
-                                <img id="qr-img" class="qr-image" src="/qr" onerror="this.style.display='none'">
-                                <p style="font-size:0.75rem; color:var(--muted);">Scan this in WhatsApp to start your session.</p>
-                                <a href="/download-qr" class="btn-download">Download QR</a>
-                             </div>
-
-                             <div class="url-list">
-                                <h3 style="font-size:0.9rem; font-weight:700; margin-bottom:12px;">LIVE DESIGN LINKS</h3>
-                                <div id="live-urls">
-                                    <!-- URLs from AI Web Searches -->
-                                </div>
-                             </div>
-                        </div>
-                    </div>
-
-                    <script>
-                        const socket = io();
-                        const messageList = document.getElementById('message-list');
-                        const liveUrls = document.getElementById('live-urls');
-                        const statusDot = document.getElementById('status-dot');
-                        const statusText = document.getElementById('status-text');
-                        const qrContainer = document.getElementById('qr-container');
-                        const msgCount = document.getElementById('msg-count');
-                        let count = 0;
-
-                        socket.on('connect_status', (data) => {
-                            if (data.status === 'online') {
-                                statusDot.classList.add('online');
-                                statusText.innerText = 'ONLINE';
-                                qrContainer.style.display = 'none';
-                            } else {
-                                statusDot.classList.remove('online');
-                                statusText.innerText = 'DISCONNECTED';
-                                qrContainer.style.display = 'block';
-                            }
-                        });
-
-                        socket.on('new_message', (data) => {
-                            if (count === 0) messageList.innerHTML = '';
-                            count++;
-                            msgCount.innerText = count + ' MESSAGES';
-
-                            const card = document.createElement('div');
-                            card.className = 'msg-card';
-                            card.innerHTML = \`
-                                <span class="msg-role role-\${data.role}">\${data.role === 'ai' ? '💎 MAZHAR AI REPLY' : '📩 WHATSAPP MESSAGE'}</span>
-                                <div class="msg-text">\${data.text}</div>
-                                <span class="msg-time">\${new Date().toLocaleTimeString()}</span>
-                            \`;
-                            messageList.prepend(card);
-
-                            // Detect URLs for the live preview link section
-                            const urls = data.text.match(/https?:\\/\\/[^\\s]+/gi);
-                            if (urls) {
-                                urls.forEach(url => {
-                                    const link = document.createElement('a');
-                                    link.className = 'url-card';
-                                    link.href = url;
-                                    link.target = '_blank';
-                                    link.innerText = '🔗 ' + url.substring(0, 40) + '...';
-                                    liveUrls.prepend(link);
-                                });
-                            }
-                        });
-
-                        socket.on('qr_update', () => {
-                            document.getElementById('qr-img').src = '/qr?t=' + Date.now();
-                            document.getElementById('qr-img').style.display = 'inline-block';
-                        });
-                    </script>
-                </body>
-                </html>
-            \`);
+            // Serve the Elite Dashboard
+            if (fs.existsSync(DASHBOARD_HTML)) {
+                res.writeHead(200, { "Content-Type": "text/html" });
+                fs.createReadStream(DASHBOARD_HTML).pipe(res);
+            } else {
+                res.writeHead(404, { "Content-Type": "text/plain" });
+                res.end("Dashboard file missing.");
+            }
         }
     });
 
@@ -219,6 +47,16 @@ function startWebServer() {
     io.on("connection", (socket) => {
         // Send initial status request to index.js
         events.emit("request_status");
+
+        socket.on("nuke_session", () => {
+            console.warn("🧨 [DASHBOARD] Session Reset Requested.");
+            const authDir = path.join(process.cwd(), "auth");
+            if (fs.existsSync(authDir)) {
+                 fs.rmSync(authDir, { recursive: true, force: true });
+                 console.log("✅ [SYSTEM] Session cleared. Restarting...");
+                 process.exit(0); // Exit so Railway/PM2 restarts the bot fresh
+            }
+        });
     });
 
     // Listen to Global Events
@@ -228,7 +66,7 @@ function startWebServer() {
     events.on("wa_qr", () => io.emit("qr_update"));
 
     server.listen(PORT, "0.0.0.0", () => {
-        console.log(\`🌐 [SYSTEM] Elite Dashboard running at port \${PORT}\`);
+        console.log("🌐 [SYSTEM] Elite Dashboard running at port " + PORT);
     });
 }
 
