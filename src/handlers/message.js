@@ -171,7 +171,8 @@ async function handleMessage(sock, msg) {
         const prompt = text.replace("@" + sock.user.id.split(":")[0], "").trim();
         if (!prompt) return;
 
-        const aiReply = await mazharAiReply(jid, prompt, pushName);
+        const aiReply = await mazharAiReply(prompt, jid, pushName);
+
 
 
         // Filter and clean the reply from AI system tags before sending
