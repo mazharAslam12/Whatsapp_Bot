@@ -10,7 +10,20 @@ const userSpecificPrompts = new Map(); // Master override custom rules per user
 const MAX_MEMORY_LENGTH = 15;
 
 const HISTORY_DIR = path.join(__dirname, "../../user_files");
+const MUTED_FILE = path.join(HISTORY_DIR, "muted_users.txt");
 let adminCustomPrompt = ""; // Dynamic prompt from dashboard
+
+// Initialization: Load muted users from disk
+(async () => {
+    try {
+        await fs.mkdir(HISTORY_DIR, { recursive: true });
+        const data = await fs.readFile(MUTED_FILE, "utf8");
+        data.split("\n").map(line => line.trim()).filter(Boolean).forEach(jid => aiDisabledUsers.add(jid));
+        console.log(`🛡️ [AI] Loaded ${aiDisabledUsers.size} muted users from disk.`);
+    } catch (e) {
+        // File might not exist yet, that's okay
+    }
+})();
 
 async function getOrInitMemory(senderJid, userName) {
     if (conversationMemory.has(senderJid)) {
@@ -199,6 +212,15 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
 function toggleUserAi(jid, status) {
     if (status === false) aiDisabledUsers.add(jid);
     else aiDisabledUsers.delete(jid);
+    
+    // Persist to disk
+    (async () => {
+        try {
+            await fs.writeFile(MUTED_FILE, Array.from(aiDisabledUsers).join("\n"), "utf8");
+        } catch (e) {
+            console.error("❌ [AI] Error saving muted list:", e.message);
+        }
+    })();
 }
 
 function isAiEnabled(jid) { return !aiDisabledUsers.has(jid); }
@@ -221,7 +243,14 @@ async function getAllContacts() {
                 if (profile.profilePic && profile.profilePic !== "No Pic") profilePic = profile.profilePic;
             } catch(e) {}
 
-            return { jid, file: f, name, profilePic, overrideActive: userSpecificPrompts.has(jid) };
+            return { 
+                jid, 
+                file: f, 
+                name, 
+                profilePic, 
+                overrideActive: userSpecificPrompts.has(jid),
+                aiEnabled: isAiEnabled(jid) 
+            };
         });
         return await Promise.all(contactPromises);
     } catch (e) { return []; }

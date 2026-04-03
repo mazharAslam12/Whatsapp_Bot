@@ -146,9 +146,16 @@
                 <div style="margin-top: 15px;">
                     <button onclick="toggleOverridePanel()" class="btn btn-ghost" style="width:100%; font-size:0.75rem; padding: 12px; border: 1px dashed var(--border);">⚙️ Target Override Rules</button>
                     <div id="override-panel" style="display:none; margin-top: 10px; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 15px; border: 1px solid var(--border);">
-                        <input type="text" id="override-jid" placeholder="Target Number (e.g. 9234...)" style="width:100%; background:var(--card); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:8px; margin-bottom:10px; font-size:0.8rem; outline:none;">
-                        <textarea id="override-rule" placeholder="Custom Rule / Prompt (Leave blank to remove)" style="width:100%; background:var(--card); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:8px; margin-bottom:10px; font-size:0.8rem; outline:none; resize:none; height: 60px;"></textarea>
-                        <button onclick="applyOverride()" class="btn btn-primary" style="width:100%; font-size:0.75rem; padding: 8px;">Inject Target Rule</button>
+                        <div style="font-size:0.7rem; font-weight:800; color:var(--primary); margin-bottom:10px">MASTER CONTROL PANEL</div>
+                        <input type="text" id="override-jid" placeholder="Phone Number (e.g. 9234...)" style="width:100%; background:var(--card); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:8px; margin-bottom:10px; font-size:0.8rem; outline:none;">
+                        
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:10px">
+                            <button onclick="changeAiStatus(false)" class="btn btn-danger" style="font-size:0.65rem; padding:8px">MUTE AI</button>
+                            <button onclick="changeAiStatus(true)" class="btn btn-primary" style="font-size:0.65rem; padding:8px">UNMUTE AI</button>
+                        </div>
+
+                        <textarea id="override-rule" placeholder="Custom Rule / Prompt (Optional)" style="width:100%; background:var(--card); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:8px; margin-bottom:10px; font-size:0.8rem; outline:none; resize:none; height: 60px;"></textarea>
+                        <button onclick="applyOverride()" class="btn btn-ghost" style="width:100%; font-size:0.7rem; padding: 8px;">SET OVERRIDE PROMPT</button>
                     </div>
                 </div>
             </div>
@@ -240,7 +247,8 @@
                     ? c.profilePic 
                     : `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=25d366&color=fff&bold=true`;
                 
-                const metaText = c.overrideActive ? '<span style="color:var(--danger)">⚠️ CUSTOM RULE ACTIVE</span>' : 'v5.0 Protocol Verified';
+                let metaText = c.overrideActive ? '<span style="color:var(--danger)">⚠️ OVERRIDE ACTIVE</span>' : 'v5.0 Protocol Verified';
+                if (!c.aiEnabled) metaText = '<span style="color:var(--danger); font-weight:900">🔇 AI MUTED</span>';
 
                 card.innerHTML = `
                     <div class="avatar-box"><img src="${avatar}"></div>
@@ -269,6 +277,16 @@
             socket.emit('override_user_ai', { jid: finalJid, prompt: ruleInput });
             alert(ruleInput ? 'Custom Rule Injected for ' + finalJid : 'Rules cleared for ' + finalJid);
             toggleOverridePanel();
+        }
+
+        function changeAiStatus(status) {
+            const jidInput = document.getElementById('override-jid').value.trim();
+            if (!jidInput) return alert('Enter a target phone number first.');
+            let finalJid = jidInput;
+            if (!finalJid.includes('@')) finalJid = finalJid.replace(/[^0-9]/g, '') + '@c.us';
+            
+            socket.emit('toggle_ai', { jid: finalJid, status: status });
+            alert(status ? 'AI Re-activated for ' + finalJid : 'AI Muted permanently for ' + finalJid);
         }
 
         function selectThread(jid) {
