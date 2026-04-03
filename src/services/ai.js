@@ -500,4 +500,9 @@ async function getFullHistory(jid) {
     } catch (e) { return []; }
 }
 
+function setAdminPrompt(prompt) {
+    adminCustomPrompt = prompt;
+    console.log("📝 [AI] System Prompt Updated: " + (prompt || "Default"));
+}
+
 module.exports = { mazharAiReply, transcribeVoice, stopAiStatus, setAdminPrompt, toggleUserAi, isAiEnabled, getAllContacts, getFullHistory };
