@@ -49,11 +49,17 @@ async function connectToWhatsApp(authPath = "auth") {
                     width: 500
                 });
 
+                const PORT = process.env.PORT || 8080;
+                const PUBLIC_URL = process.env.PUBLIC_URL || 
+                                  (process.env.RAILWAY_STATIC_URL ? `https://${process.env.RAILWAY_STATIC_URL}` : 
+                                   process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 
+                                   `http://localhost:${PORT}`);
+
                 console.log("📸 [SYSTEM] QR saved as image in: user_files/login-qr.png");
                 console.log("\n🔗 [QR LINKS] SCAN USING ONE OF THESE:");
-                console.log(`👉 BROWSER URL: http://localhost:${process.env.PORT || 3000}/qr`);
+                console.log(`👉 BROWSER URL: ${PUBLIC_URL}/qr`);
                 console.log(`👉 FILE PATH: file:///${qrPath.replace(/\\/g, "/")}\n`);
-                console.log("💡 Tip: If running on Render, use your public service URL followed by /qr");
+                console.log("💡 Tip: If running on Railway, ensure your Public Domain is enabled in Settings.");
 
                 // Broadcast to dashboard
                 events.emit("wa_qr");
