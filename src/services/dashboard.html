@@ -364,7 +364,7 @@
             border-top: 1px solid rgba(255, 255, 255, 0.05);
             display: flex;
             gap: 20px;
-            align-items: center;
+            align-items: flex-end;
         }
 
         .main-input {
@@ -372,12 +372,20 @@
             background: rgba(10, 16, 26, 0.9);
             border: 1px solid var(--glass-border);
             padding: 16px 28px;
-            border-radius: 44px;
+            border-radius: 24px;
             color: #fff;
             outline: none;
             font-size: 1rem;
             font-weight: 500;
             transition: 0.2s;
+            min-height: 52px;
+            max-height: 200px;
+            resize: vertical;
+            font-family: inherit;
+        }
+
+        textarea.main-input {
+            line-height: 1.45;
         }
 
         .main-input:focus {
@@ -625,9 +633,10 @@
                         <div id="active-user-jid" class="chat-target-jid">OFFLINE CONTEXT</div>
                     </div>
                 </div>
-                <div id="master-controls" style="display:none; gap:14px">
-                    <button id="ai-toggle-btn" class="btn btn-ghost" style="padding:10px 24px; font-size:0.7rem"><i class="fas fa-robot"></i> AI: ACTIVE</button>
-                    <button onclick="openMindConfig()" class="btn btn-ghost" style="padding:10px 24px; font-size:0.7rem"><i class="fas fa-cog"></i> Core Config</button>
+                <div id="master-controls" style="display:none; gap:10px; flex-wrap:wrap; align-items:center; justify-content:flex-end; max-width:520px">
+                    <button type="button" onclick="refreshContacts()" class="btn btn-ghost" style="padding:10px 18px; font-size:0.65rem"><i class="fas fa-sync-alt"></i> Refresh</button>
+                    <button type="button" id="ai-toggle-btn" class="btn btn-ghost" style="padding:10px 18px; font-size:0.65rem" onclick="toggleAiForCurrentChat()" title="Mute/unmute AI for this chat"><i class="fas fa-robot"></i> AI: ACTIVE</button>
+                    <button type="button" onclick="openMindConfig()" class="btn btn-ghost" style="padding:10px 18px; font-size:0.65rem"><i class="fas fa-cog"></i> Status</button>
                 </div>
             </header>
 
@@ -639,8 +648,8 @@
             </div>
 
             <div class="input-console">
-                <input type="text" id="chat-input" class="main-input" placeholder="✉️ Admin message — sends on WhatsApp as plain text (AI paused 3 min)">
-                <button id="send-trigger" class="btn btn-primary"><i class="fas fa-bolt"></i> TRANSMIT</button>
+                <textarea id="chat-input" class="main-input" rows="3" placeholder="✉️ Admin bypass — sends on WhatsApp as your message. AI pauses ~3 min for this chat so you can talk first."></textarea>
+                <button type="button" id="send-trigger" class="btn btn-primary" style="align-self:flex-end"><i class="fas fa-bolt"></i> SEND</button>
             </div>
         </main>
     </div>
@@ -687,7 +696,37 @@
     socket.on('contact_list', (data) => {
         knownContacts = data;
         renderContacts();
+        syncAiButtonForCurrent();
     });
+
+    function syncAiButtonForCurrent() {
+        const btn = document.getElementById('ai-toggle-btn');
+        if (!currentJid || !btn) return;
+        const c = knownContacts.find(x => x.jid === currentJid);
+        if (!c) return;
+        const aiActiveStatus = c.aiEnabled !== false;
+        const isPaused = c.isPaused;
+        let aiBtnHtml = '<i class="fas fa-microchip"></i> AI: ON';
+        if (!aiActiveStatus) aiBtnHtml = '<i class="fas fa-ban"></i> AI: MUTED';
+        else if (isPaused) aiBtnHtml = `<i class="fas fa-clock"></i> AI: PAUSED (${c.pauseRemaining}m)`;
+        btn.innerHTML = aiBtnHtml;
+        btn.style.color = !aiActiveStatus ? 'var(--danger-crimson)' : (isPaused ? '#fbbf24' : 'var(--primary-cyan)');
+    }
+
+    function refreshContacts() {
+        socket.emit('get_contacts');
+    }
+
+    function toggleAiForCurrentChat() {
+        if (!currentJid) {
+            alert('Pehle sidebar se contact select karo.');
+            return;
+        }
+        const c = knownContacts.find(x => x.jid === currentJid);
+        const enabled = c ? c.aiEnabled !== false : true;
+        socket.emit('toggle_ai', { jid: currentJid, status: !enabled });
+        setTimeout(() => socket.emit('get_contacts'), 350);
+    }
 
     function renderContacts() {
         contactList.innerHTML = '';
@@ -768,16 +807,7 @@
         document.getElementById('active-user-name').innerHTML = `<i class="fas fa-bolt"></i> ${contact ? escapeHtml(contact.name) : jid.split('@')[0]}`;
         document.getElementById('active-user-jid').innerText = jid;
         document.getElementById('master-controls').style.display = 'flex';
-        
-        const aiActiveStatus = contact?.aiEnabled !== false;
-        const isPaused = contact?.isPaused;
-        
-        let aiBtnHtml = '<i class="fas fa-microchip"></i> AI: ACTIVE';
-        if (!aiActiveStatus) aiBtnHtml = '<i class="fas fa-ban"></i> AI: MUTED';
-        else if (isPaused) aiBtnHtml = `<i class="fas fa-clock"></i> AI: PAUSED (${contact.pauseRemaining}m)`;
-        
-        document.getElementById('ai-toggle-btn').innerHTML = aiBtnHtml;
-        document.getElementById('ai-toggle-btn').style.color = !aiActiveStatus ? 'var(--danger-crimson)' : (isPaused ? '#fbbf24' : 'var(--primary-cyan)');
+        syncAiButtonForCurrent();
         
         mainInput.placeholder = `⍟ Bypass to ${jid.split('@')[0]}...`;
         renderContacts();
@@ -867,15 +897,22 @@
     }
 
     sendBtn.onclick = () => {
-        const text = mainInput.value.trim();
+        const text = (mainInput.value || '').trim();
         if(!text || !currentJid) return;
         
-        // Optimistic UI
         appendBubble('admin', '👑 ' + text, Date.now());
         
         socket.emit('admin_reply', { jid: currentJid, text });
         mainInput.value = '';
+        mainInput.style.height = '';
     };
+
+    mainInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendBtn.click();
+        }
+    });
 
     function nukeSession() {
         if(confirm('⚠️ NUKE SESSION: All data will be wiped. Confirm?')) {

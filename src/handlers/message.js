@@ -287,12 +287,18 @@ async function handleMessage(sock, msg) {
         // Handle Voice Notes (Transcribe to text)
         if (msgType === "audioMessage" && mediaBuffer) {
             console.log("🎤 [SYSTEM] Transcribing voice note...");
-            const transcript = await transcribeVoice(mediaBuffer);
-            if (transcript) {
-                console.log(`🎤 [VOICE] Transcribed: "${transcript}"`);
-                prompt = transcript;
-            } else {
-                prompt = "[Yaar voice note sahi se samajh nahi aai, net slow ho sakta hai. Reply in persona.]";
+            try {
+                const transcript = await transcribeVoice(mediaBuffer);
+                if (transcript) {
+                    console.log(`🎤 [VOICE] Transcribed: "${transcript}"`);
+                    prompt = transcript;
+                } else {
+                    prompt =
+                        "[Voice note transcribe nahi hua — Groq API fail. User ko short Urdu/English mein keh de: GROQ_API_KEY check karein ya dubara bhejein.]";
+                }
+            } catch (ve) {
+                console.error("🎤 [VOICE] Transcribe error:", ve.message);
+                prompt = `[Voice note — ${ve.message || "transcription off"}. Mazhar style mein short jawab.]`;
             }
         }
         // We only trigger AI if it's a private message or the bot is mentioned/replied to
@@ -319,6 +325,7 @@ async function handleMessage(sock, msg) {
         // Strip mention if it exists
         const hasVisualMedia =
             mediaTypes.includes(msgType) &&
+            msgType !== "audioMessage" &&
             (mediaBuffer?.length > 0 || mediaThumbnail?.length > 0);
         if (documentExtractedText) {
             const fn = content.documentMessage?.fileName || "document";
@@ -353,6 +360,11 @@ async function handleMessage(sock, msg) {
             aiThumb = null;
             if (aiMediaData) aiMediaData = { ...aiMediaData, type: "document_text" };
         }
+        if (msgType === "audioMessage") {
+            aiMediaBuffer = null;
+            aiThumb = null;
+            if (aiMediaData) aiMediaData = { ...aiMediaData, type: "audio_transcribed" };
+        }
 
         let aiReply = await mazharAiReply(userLine, jid, pushName, aiMediaBuffer, aiMediaData, aiThumb);
 
@@ -360,9 +372,11 @@ async function handleMessage(sock, msg) {
             return;
         }
         if (String(aiReply).trim() === "") {
-            await safeSendMessage(sock, jid, {
-                text: "Yaar abhi is media ka scene clear nahi hua — GEMINI_API_KEY + GROQ_API_KEY .env mein check kar, phir dubara bhej."
-            });
+            const voiceHint =
+                msgType === "audioMessage"
+                    ? "Voice note ka text nahi nikal saka — GROQ_API_KEY .env mein set kar (Whisper), phir dubara bhej."
+                    : "Abhi jawab clear nahi — GEMINI_API_KEY / GROQ_API_KEY .env check kar, phir dubara try.";
+            await safeSendMessage(sock, jid, { text: voiceHint });
             return;
         }
 
@@ -533,8 +547,16 @@ async function handleMessage(sock, msg) {
             try {
                 const { searchAudio } = require("../services/search");
                 const audioBuffer = await searchAudio(songMatch[1]);
-                await safeSendMessage(sock, jid, { audio: audioBuffer, mimetype: "audio/mp4", ptt: false });
-            } catch (e) { console.error("❌ Song trigger fail:", e.message); }
+                // ptt: true = WhatsApp voice note (tap to play), not a generic audio file
+                await safeSendMessage(sock, jid, {
+                    audio: audioBuffer,
+                    mimetype: "audio/mpeg",
+                    ptt: true
+                });
+            } catch (e) {
+                console.error("❌ Song trigger fail:", e.message);
+                await safeSendMessage(sock, jid, { text: `Song load nahi hui: ${e.message}` });
+            }
         }
 
         const videoMatch = aiReply.match(/\[VIDEO_DOWNLOAD:\s*(.*?)\]/i);

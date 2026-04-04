@@ -118,7 +118,7 @@ async function getOrInitMemory(senderJid, userName) {
             "- `[REACTION: emoji]` when it fits.\n" +
             "- `[GIF: category]` — categories include: smile, happy, hug, dance, wave, cry, love, angry, anime, meme, funny, hype, motivation, pat, wink, bully, cartoon, cat, dog, naruto, kawaii… (one word/theme).\n" +
             "- `[IMG_SEARCH: query]` when they want a picture or it fits the convo.\n" +
-            "- `[SONG_SEARCH: name]` for music.\n\n" +
+            "- `[SONG_SEARCH: name]` — bot sends the track as a **WhatsApp voice note (PTT)** so they can tap and listen like a normal voice message.\n\n" +
             "🌐 LANGUAGE: Always **match the user's language** in their latest message — English in English, Urdu script in Urdu script, Roman Urdu if they use Roman Urdu. Never force the wrong language.\n" +
             "👔 PROFESSIONAL MIRROR: If the CONTEXT says they write **formally / corporate** (Dear, Regards, meeting, proposal, invoice, FYI), answer **polite and professional** in the **same language** until they go casual again.\n" +
             "🚫 Never say you're an AI, model, assistant, or 'how can I help'. No robotic filler.\n\n" +
@@ -325,7 +325,7 @@ async function getMemory(senderJid) {
 
 async function transcribeVoice(buffer) {
     const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) throw new Error("Groq API key missing");
+    if (!apiKey) throw new Error("GROQ_API_KEY missing in .env (needed for voice notes)");
     const { FormData } = await import("formdata-node");
     const { Blob } = await import("buffer");
     const form = new FormData();
@@ -604,7 +604,11 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
         const thumbLen = mediaThumbnail
             ? (Buffer.isBuffer(mediaThumbnail) ? mediaThumbnail.length : Buffer.from(mediaThumbnail).length)
             : 0;
-        const hasAnyVisual = Boolean((mediaBuffer && mediaBuffer.length) || thumbLen > 0);
+        // Voice notes are NOT vision (type may be "audio" or "audio_transcribed"). Ignore audio + any stray thumbnail.
+        const isAudioLike = mediaType === "audio" || mediaType === "audio_transcribed";
+        const hasAnyVisual = Boolean(
+            !isAudioLike && ((mediaBuffer && mediaBuffer.length) || thumbLen > 0)
+        );
 
         const MAX_GEMINI_INLINE_VIDEO = 12 * 1024 * 1024;
         let geminiMediaBuffer = mediaBuffer && mediaBuffer.length ? mediaBuffer : null;
@@ -783,7 +787,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
         }
 
         if (!reply && hasAnyVisual) {
-            return "Yaar is media ka scene abhi lock nahi hua — .env mein GEMINI_API_KEY aur GROQ_API_KEY dono set kar, phir dubara bhej. Agar phir bhi ho to file choti kar ke try kar.";
+            return "Photo/video/GIF abhi analyze nahi ho saka — GEMINI_API_KEY + GROQ_API_KEY .env mein set kar, phir dubara bhej (file choti kar ke try kar).";
         } else if (!reply) {
             return "Yaar net ka scene kharab hai, dobara query karo.";
         }
