@@ -30,7 +30,8 @@ events.on("send_whatsapp", async (data) => {
                 targetJid = targetJid.replace("@c.us", "@s.whatsapp.net");
             }
 
-            await safeSendMessage(sock, targetJid, { text: data.text });
+            await safeSendMessage(sock, targetJid, { text: data.text }, { skipAiReplyEvent: true });
+            events.emit("admin_outbound", { jid: targetJid, text: data.text });
             console.log(`✅ [DASHBOARD] Message delivered to ${targetJid}`);
         } catch (err) {
             console.error("❌ [DASHBOARD] Transmit failed:", err.message);

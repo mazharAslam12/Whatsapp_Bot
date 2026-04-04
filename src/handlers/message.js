@@ -1,7 +1,7 @@
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 const fs = require("fs").promises;
 const path = require("path");
-const { mazharAiReply, stopAiStatus, isAiEnabled, transcribeVoice } = require("../services/ai");
+const { mazharAiReply, isAiEnabled, transcribeVoice, buildLanguageHint, userPauseCommand } = require("../services/ai");
 const { searchImages } = require("../services/image");
 const events = require("../lib/events");
 
@@ -38,7 +38,7 @@ async function safeSendMessage(sock, jid, content, options = {}) {
             // Send directly and let Baileys handle the queue/state internally
             const res = await sock.sendMessage(jid, content, options);
             console.log(`✅ [SYSTEM] Sent: ${Object.keys(content)[0]} to ${jid}`);
-            if (content.text) events.emit("ai_reply", { text: content.text });
+            if (content.text && options.skipAiReplyEvent !== true) events.emit("ai_reply", { text: content.text, jid });
             return res;
         } catch (err) {
             const isClosed = err.message.includes("Connection Closed") || err.output?.statusCode === 428;
@@ -197,6 +197,36 @@ async function handleMessage(sock, msg) {
             }
         }
 
+        let documentExtractedText = null;
+        if (msgType === "documentMessage" && mediaBuffer && mediaBuffer.length) {
+            const dm = content.documentMessage;
+            const mime = (dm?.mimetype || "").toLowerCase();
+            const fname = (dm?.fileName || "").toLowerCase();
+            try {
+                if (mime.includes("pdf") || fname.endsWith(".pdf")) {
+                    const { extractTextFromPdf } = require("../services/pdf");
+                    documentExtractedText = await extractTextFromPdf(mediaBuffer);
+                    console.log(`📄 [DOCUMENT] PDF text extracted (${documentExtractedText?.length || 0} chars)`);
+                } else if (
+                    mime.includes("text/plain") ||
+                    fname.endsWith(".txt") ||
+                    (mime.startsWith("text/") && !mime.includes("html"))
+                ) {
+                    documentExtractedText = mediaBuffer.toString("utf8");
+                    console.log(`📄 [DOCUMENT] Plain text (${documentExtractedText.length} chars)`);
+                } else if (mime.includes("json") || fname.endsWith(".json")) {
+                    documentExtractedText = mediaBuffer.toString("utf8");
+                } else if (mime.includes("markdown") || fname.endsWith(".md")) {
+                    documentExtractedText = mediaBuffer.toString("utf8");
+                }
+            } catch (docErr) {
+                console.warn("⚠️ [DOCUMENT] Could not read file:", docErr.message);
+            }
+            if (documentExtractedText && documentExtractedText.length > 48000) {
+                documentExtractedText = documentExtractedText.slice(0, 48000) + "\n\n[…truncated for length…]";
+            }
+        }
+
         // --- PROFILE & IDENTITY SYNC ---
         let profilePic = profilePicCache.get(jid) || null;
         try {
@@ -241,8 +271,8 @@ async function handleMessage(sock, msg) {
 
 
         if (lower === "stop" || lower === "break" || lower === "resume") {
-            const res = stopAiStatus(jid, lower);
-            await safeSendMessage(sock, jid, { text: res });
+            const res = userPauseCommand(jid, lower);
+            if (res) await safeSendMessage(sock, jid, { text: res });
             return;
         }
 
@@ -290,8 +320,15 @@ async function handleMessage(sock, msg) {
         const hasVisualMedia =
             mediaTypes.includes(msgType) &&
             (mediaBuffer?.length > 0 || mediaThumbnail?.length > 0);
-        let userLine = prompt.replace("@" + sock.user.id.split(":")[0], "").trim() + quotedContext;
-        if (!userLine.trim() && hasVisualMedia) {
+        if (documentExtractedText) {
+            const fn = content.documentMessage?.fileName || "document";
+            prompt =
+                (prompt ? prompt + "\n\n" : "") +
+                `[User sent file: "${fn}". Read extracted content and answer in the same language they use.]\n---\n${documentExtractedText}\n---`;
+        }
+        const langHint = buildLanguageHint(prompt + rawText);
+        let userLine = langHint + prompt.replace("@" + sock.user.id.split(":")[0], "").trim() + quotedContext;
+        if (!userLine.replace(/\[LANGUAGE:[^\]]*\]/g, "").trim() && hasVisualMedia) {
             const label =
                 mediaType === "gif"
                     ? "GIF/animation"
@@ -305,9 +342,19 @@ async function handleMessage(sock, msg) {
             userLine = `[User ne WhatsApp pe ${label} bheji hai — caption khali hai. Dekh ke Mazhar ki tarah short, human, mix Urdu/English mein jawab de. Kya scene hai, kya dikh raha hai — seedha bata.]`;
         }
 
-        if (!userLine.trim() && !mediaBuffer?.length && !mediaThumbnail?.length) return;
+        const userLineForGate = userLine.replace(/\[LANGUAGE:[^\]]*\]\s*/g, "").trim();
+        if (!userLineForGate && !mediaBuffer?.length && !mediaThumbnail?.length && !documentExtractedText) return;
 
-        let aiReply = await mazharAiReply(userLine, jid, pushName, mediaBuffer, mediaData, mediaThumbnail);
+        let aiMediaBuffer = mediaBuffer;
+        let aiMediaData = mediaData;
+        let aiThumb = mediaThumbnail;
+        if (documentExtractedText && msgType === "documentMessage") {
+            aiMediaBuffer = null;
+            aiThumb = null;
+            if (aiMediaData) aiMediaData = { ...aiMediaData, type: "document_text" };
+        }
+
+        let aiReply = await mazharAiReply(userLine, jid, pushName, aiMediaBuffer, aiMediaData, aiThumb);
 
         if (aiReply == null || aiReply === undefined) {
             return;
@@ -377,6 +424,25 @@ async function handleMessage(sock, msg) {
         const reactionMatch = aiReply.match(/\[REACTION:\s*(.*?)\]/i);
         if (reactionMatch) {
             await safeSendMessage(sock, jid, { react: { text: reactionMatch[1], key: msg.key } });
+        }
+
+        let finalCleanReply = aiReply.replace(/\[[\s\S]*?\]/g, "").replace(/\n{2,}/g, "\n").trim();
+        const wantsTextBeforeMedia =
+            Boolean(finalCleanReply) &&
+            (/\[IMG_SEARCH:/i.test(aiReply) || /\[GIF:/i.test(aiReply) || /\[TRIGGER_SEND_REAL_OWNER_PHOTO\]/i.test(aiReply));
+        let assistantTextSent = false;
+
+        if (wantsTextBeforeMedia) {
+            console.log(`✅ [SYSTEM] Text-first (before GIF/image): ${finalCleanReply.substring(0, 40)}...`);
+            await safeSendMessage(sock, jid, { text: finalCleanReply }, { quoted: msg });
+            events.emit("ai_reply", { text: finalCleanReply, jid: jid });
+            assistantTextSent = true;
+            const { getMemory, saveMemory } = require("../services/ai");
+            const historyEarly = await getMemory(jid);
+            if (historyEarly.length && historyEarly[historyEarly.length - 1].role === "assistant") {
+                historyEarly[historyEarly.length - 1].content = finalCleanReply;
+                await saveMemory(jid, historyEarly);
+            }
         }
 
         // 3. MEDIA TRIGGERS
@@ -487,16 +553,13 @@ async function handleMessage(sock, msg) {
         }
 
         // --- UNIVERSAL TAG STRIPPER (FINAL PASS) ---
-        // Robust multiline removal of [ANY_TAG:...]
-        let finalCleanReply = aiReply.replace(/\[[\s\S]*?\]/g, "").replace(/\n{2,}/g, "\n").trim();
+        finalCleanReply = aiReply.replace(/\[[\s\S]*?\]/g, "").replace(/\n{2,}/g, "\n").trim();
 
-        // Send the cleaned text reply
-        if (finalCleanReply) {
+        if (finalCleanReply && !assistantTextSent) {
             console.log(`✅ [SYSTEM] Sending final clean reply: ${finalCleanReply.substring(0, 30)}...`);
             await safeSendMessage(sock, jid, { text: finalCleanReply }, { quoted: msg });
             events.emit("ai_reply", { text: finalCleanReply, jid: jid });
 
-            // Persist the AI's cleaned text in memory (overwriting the raw version)
             const { getMemory, saveMemory } = require("../services/ai");
             const history = await getMemory(jid);
             if (history.length && history[history.length - 1].role === "assistant") {

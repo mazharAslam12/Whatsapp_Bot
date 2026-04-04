@@ -3,7 +3,16 @@ const fs = require("fs");
 const path = require("path");
 const { Server } = require("socket.io");
 const events = require("../lib/events");
-const { setAdminPrompt, toggleUserAi, getAllContacts, getFullHistory, addAdminMessageToMemory, setUserSpecificPrompt } = require("./ai");
+const {
+    setAdminPrompt,
+    toggleUserAi,
+    getAllContacts,
+    getFullHistory,
+    addAdminMessageToMemory,
+    setUserSpecificPrompt,
+    pauseAiTemporarily,
+    normalizeUserJid
+} = require("./ai");
 
 
 
@@ -83,25 +92,25 @@ function startWebServer() {
         });
 
         socket.on("admin_reply", async (data) => {
-            console.log(`📩 [DASHBOARD] Replying to ${data.jid}: ${data.text}`);
-            
-            // 🛡️ SMART PAUSE: We pause the AI for 30 seconds (Ultra Performance)
-            // so the admin can send a message without the bot replying immediately.
-            const thirtySeconds = 30 * 1000;
-            stopAiStatus.set(data.jid, Date.now() + thirtySeconds);
-            
-            await addAdminMessageToMemory(data.jid, data.text);
-            events.emit("send_whatsapp", data);
+            if (!data?.jid || !data?.text) return;
+            const jid = normalizeUserJid(data.jid);
+            console.log(`📩 [DASHBOARD] Bypass → ${jid}`);
+            pauseAiTemporarily(jid, 180000);
+            await addAdminMessageToMemory(jid, data.text);
+            events.emit("send_whatsapp", { jid, text: data.text });
         });
 
         socket.on("override_user_ai", (data) => {
-            console.log(`👑 [MASTER OVERRIDE] Target: ${data.jid}. Rule: ${data.prompt}`);
-            setUserSpecificPrompt(data.jid, data.prompt);
-            socket.emit("get_contacts"); // Refresh UI
+            const jid = normalizeUserJid(data.jid);
+            console.log(`👑 [MASTER OVERRIDE] Target: ${jid}. Rule: ${data.prompt}`);
+            setUserSpecificPrompt(jid, data.prompt || "");
+            socket.emit("get_contacts");
         });
 
         socket.on("toggle_ai", (data) => {
-            toggleUserAi(data.jid, data.status);
+            const jid = normalizeUserJid(data.jid);
+            toggleUserAi(jid, data.status);
+            socket.emit("get_contacts");
         });
 
         socket.on("get_contacts", async () => {
@@ -136,6 +145,14 @@ function startWebServer() {
     // Listen to Global Events
     events.on("wa_message", (data) => io.emit("new_message", { role: "whatsapp", ...data }));
     events.on("ai_reply", (data) => io.emit("new_message", { role: "ai", ...data }));
+    events.on("admin_outbound", (data) =>
+        io.emit("new_message", {
+            role: "admin",
+            jid: data.jid,
+            text: data.text,
+            senderName: "Admin"
+        })
+    );
     events.on("wa_status", (status) => io.emit("connect_status", { status }));
     events.on("wa_qr", () => io.emit("qr_update"));
 

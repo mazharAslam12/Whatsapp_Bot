@@ -4,15 +4,31 @@
  */
 async function getGif(query) {
     const q = (query || "happy").toLowerCase();
-    const categories = ["smile", "wave", "happy", "dance", "laugh", "hug", "wink", "pat", "bonk", "yeet", "bully", "slap", "kill", "cringe", "cuddle", "cry", "love", "angry", "surprised", "thinking", "success", "motivation", "cartoon"];
-    let category = categories.find(c => q.includes(c)) || "smile";
+    const categories = [
+        "naruto", "manga", "kawaii", "anime", "meme", "funny", "hype", "cat", "dog", "pet",
+        "smile", "wave", "happy", "dance", "laugh", "hug", "wink", "pat", "bonk", "yeet", "bully", "slap", "kill",
+        "cringe", "cuddle", "cry", "love", "angry", "surprised", "thinking", "success", "motivation", "cartoon"
+    ];
+    let category = categories.find((c) => q.includes(c)) || "smile";
 
-    // --- FIX: Map unsupported categories for waifu.pics ---
+    let tenorQ = category;
+    if (q.includes("anime") || q.includes("naruto") || q.includes("manga") || q.includes("kawaii")) tenorQ = "anime";
+    else if (q.includes("meme")) tenorQ = "meme funny";
+    else if (q.includes("funny") || q.includes("hype")) tenorQ = "funny hype";
+    else if (q.includes("cat") || q.includes("pet")) tenorQ = "cute cat";
+    else if (q.includes("dog")) tenorQ = "cute dog";
+
+    // --- Map to waifu.pics / nekos valid SFW tags ---
     if (category === "laugh") category = "smile";
     if (category === "cringe" || category === "thinking") category = "smug";
     if (category === "success" || category === "motivation") category = "happy";
-    if (category === "angry" || category === "cartoon") category = "bully"; // Anime-style reaction for cartoon
-    console.log(`🎬 [GIF ENGINE] Searching Sources... Category: ${category}`);
+    if (category === "angry" || category === "cartoon") category = "bully";
+    if (["anime", "naruto", "manga", "kawaii"].includes(category)) category = "waifu";
+    if (["meme", "funny", "hype"].includes(category)) category = "happy";
+    if (category === "cat" || category === "pet") category = "pat";
+    if (category === "dog") category = "happy";
+
+    console.log(`🎬 [GIF ENGINE] tenorQ=${tenorQ} waifuCategory=${category}`);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000); // 10s strict timeout
@@ -22,7 +38,7 @@ async function getGif(query) {
     if (tenorGoogleKey) {
         try {
             const v2Url = `https://tenor.googleapis.com/v2/search?${new URLSearchParams({
-                q: category,
+                q: tenorQ,
                 key: tenorGoogleKey,
                 limit: "12",
                 media_filter: "tinygif,tinywebm,nanomp4"
@@ -53,7 +69,7 @@ async function getGif(query) {
     try {
         console.log("📡 [GIF] Fetching from Tenor API v1 (MP4)...");
         const tenorParams = new URLSearchParams({
-            q: category,
+            q: tenorQ,
             key: "LIVDSRZULELA",
             limit: "10"
         });
@@ -98,8 +114,9 @@ async function getGif(query) {
 
     // SOURCE 2: otakugif.xyz (Fallback API)
     try {
+        const otakuReact = category === "waifu" ? "happy" : category;
         console.log("📡 [GIF] Fetching from otakugif.xyz...");
-        const res = await fetch(`https://api.otakugif.xyz/gif?reaction=${category}`, { signal: controller.signal });
+        const res = await fetch(`https://api.otakugif.xyz/gif?reaction=${otakuReact}`, { signal: controller.signal });
         console.log(`📡 [GIF] otakugif.xyz status: ${res.status}`);
         if (res.ok) {
             const data = await res.json();
@@ -115,10 +132,10 @@ async function getGif(query) {
     try {
         console.log("📡 [GIF] Fetching from nekos.best...");
 
-        // Map category to a valid nekos.best reaction if needed
         let nekoCategory = category;
-        if (category === "angry" || category === "bully") nekoCategory = "baka";
-        if (category === "happy" || category === "smile") nekoCategory = "happy";
+        if (category === "waifu") nekoCategory = "waifu";
+        else if (category === "angry" || category === "bully") nekoCategory = "baka";
+        else if (category === "happy" || category === "smile") nekoCategory = "happy";
 
         const res = await fetch(`https://nekos.best/api/v2/${nekoCategory}`, { signal: controller.signal });
         console.log(`📡 [GIF] nekos.best status: ${res.status}`);

@@ -275,6 +275,16 @@
             align-self: flex-start;
         }
 
+        .msg-container.admin {
+            align-self: flex-end;
+            flex-direction: row-reverse;
+        }
+
+        .admin .msg-bubble {
+            background: linear-gradient(145deg, rgba(182, 36, 255, 0.15), rgba(0, 242, 254, 0.06));
+            border-right: 3px solid var(--primary-purple);
+        }
+
         .msg-bubble {
             background: rgba(18, 26, 40, 0.8);
             backdrop-filter: blur(12px);
@@ -569,7 +579,7 @@
                     <button onclick="toggleOverridePanel()" class="btn btn-ghost" style="width:100%; font-size:0.7rem; padding: 12px;"><i class="fas fa-microchip"></i> ⚙️ Override Engine</button>
                     <div id="override-panel" style="display:none; margin-top: 12px; background: rgba(0,0,0,0.6); padding: 18px; border-radius: 24px; border: 1px solid var(--primary-cyan);">
                         <div style="font-size:0.7rem; font-weight:800; color:var(--primary-cyan); margin-bottom:12px"><i class="fas fa-skull"></i> MASTER OVERRIDE</div>
-                        <input type="text" id="override-jid" placeholder="Phone Number (e.g. 9234...)" style="width:100%; background:var(--card-glass); border:1px solid var(--glass-border); color:#fff; padding:12px; border-radius:16px; margin-bottom:12px; font-size:0.8rem; outline:none;">
+                        <input type="text" id="override-jid" placeholder="Phone (digits only, e.g. 923001234567) — auto @s.whatsapp.net" style="width:100%; background:var(--card-glass); border:1px solid var(--glass-border); color:#fff; padding:12px; border-radius:16px; margin-bottom:12px; font-size:0.8rem; outline:none;">
                         
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:12px">
                             <button onclick="changeAiStatus(false)" class="btn btn-danger" style="font-size:0.65rem; padding:10px"><i class="fas fa-microphone-slash"></i> MUTE AI</button>
@@ -629,7 +639,7 @@
             </div>
 
             <div class="input-console">
-                <input type="text" id="chat-input" class="main-input" placeholder="⚡ Encrypted bypass message...">
+                <input type="text" id="chat-input" class="main-input" placeholder="✉️ Admin message — sends on WhatsApp as plain text (AI paused 3 min)">
                 <button id="send-trigger" class="btn btn-primary"><i class="fas fa-bolt"></i> TRANSMIT</button>
             </div>
         </main>
@@ -716,6 +726,7 @@
                 <div class="avatar-box"><img src="${avatar}" loading="lazy"></div>
                 <div class="contact-detail">
                     <div class="contact-user">${escapeHtml(c.name)}</div>
+                    <div class="contact-meta" style="opacity:0.85;font-family:monospace;font-size:0.65rem">${escapeHtml(c.phone || c.jid.split('@')[0])}</div>
                     <div class="contact-meta" style="color:${statusColor}">${statusIcon} ${statusText}</div>
                 </div>
             `;
@@ -733,8 +744,7 @@
         const ruleInput = document.getElementById('override-rule').value.trim();
         if (!jidInput) return alert('Enter target phone number.');
         
-        let finalJid = jidInput;
-        if (!finalJid.includes('@')) finalJid = finalJid.replace(/[^0-9]/g, '') + '@c.us';
+        let finalJid = jidInput.includes('@') ? jidInput : jidInput.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
 
         socket.emit('override_user_ai', { jid: finalJid, prompt: ruleInput });
         alert(ruleInput ? '✓ Rule injected for ' + finalJid : '✓ Rules cleared for ' + finalJid);
@@ -745,9 +755,8 @@
     function changeAiStatus(status) {
         const jidInput = document.getElementById('override-jid').value.trim();
         if (!jidInput) return alert('Enter target phone number first.');
-        let finalJid = jidInput;
-        if (!finalJid.includes('@')) finalJid = finalJid.replace(/[^0-9]/g, '') + '@c.us';
-        
+        let finalJid = jidInput.includes('@') ? jidInput : jidInput.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+
         socket.emit('toggle_ai', { jid: finalJid, status: status });
         alert(status ? '🤖 AI Reactivated for ' + finalJid : '🔇 AI Muted for ' + finalJid);
         setTimeout(() => socket.emit('get_contacts'), 200);
@@ -781,7 +790,9 @@
         if(data.history && data.history.length) {
             data.history.forEach(msg => {
                 if(msg.role === 'system') return;
-                appendBubble(msg.role === 'user' ? 'whatsapp' : 'ai', msg.content, msg.timestamp, msg.media);
+                let bubble = msg.role === 'user' ? 'whatsapp' : 'ai';
+                if (msg.role === 'assistant' && /👑 MASTER/i.test(msg.content || '')) bubble = 'admin';
+                appendBubble(bubble, msg.content, msg.timestamp, msg.media);
             });
         } else {
             feed.innerHTML = '<div style="text-align:center; margin: auto; opacity:0.5;"><i class="fas fa-comment"></i> No messages yet</div>';
@@ -801,7 +812,8 @@
 
         if(data.jid === currentJid) {
             if (data.profilePic) document.getElementById('active-user-pic').src = data.profilePic;
-            appendBubble(data.role === 'whatsapp' ? 'whatsapp' : 'ai', data.text, Date.now(), data.media);
+            const bubble = data.role === 'whatsapp' ? 'whatsapp' : (data.role === 'admin' ? 'admin' : 'ai');
+            appendBubble(bubble, data.text, Date.now(), data.media);
             feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' });
         }
     });
@@ -859,7 +871,7 @@
         if(!text || !currentJid) return;
         
         // Optimistic UI
-        appendBubble('ai', '👑 MASTER: ' + text, Date.now());
+        appendBubble('admin', '👑 ' + text, Date.now());
         
         socket.emit('admin_reply', { jid: currentJid, text });
         mainInput.value = '';

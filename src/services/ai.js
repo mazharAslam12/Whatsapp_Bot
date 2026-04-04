@@ -8,24 +8,70 @@ const conversationMemory = new Map();
 const stopAiStatus = new Map(); // { jid: untilTime }
 const aiDisabledUsers = new Set(); // JIDs where AI is permanently disabled by admin
 const userSpecificPrompts = new Map(); // Master override custom rules per user
-const MAX_MEMORY_LENGTH = 30; // Expanded to 30 for 'Ultra Deep' Chat Context
+/** Max non-system messages kept per chat (full history on disk, trimmed to stay fast). */
+const MAX_STORED_MESSAGES = 120;
+/** Recent turns sent to LLMs for relationship / context (not the whole file). */
+const CHAT_CONTEXT_DEPTH = 12;
 
 const HISTORY_DIR = path.join(__dirname, "../../user_files");
 const MUTED_FILE = path.join(HISTORY_DIR, "muted_users.txt");
 let adminCustomPrompt = ""; // Dynamic prompt from dashboard
+
+function normalizeUserJid(raw) {
+    if (!raw) return raw;
+    const s = String(raw).trim();
+    if (s.endsWith("@g.us")) return s;
+    const at = s.indexOf("@");
+    const head = at >= 0 ? s.slice(0, at) : s;
+    const digits = head.replace(/\D/g, "");
+    if (!digits) return s;
+    return `${digits}@s.whatsapp.net`;
+}
+
+function historyBasenameToJid(base) {
+    if (!base) return null;
+    if (base.endsWith("_s_whatsapp_net")) {
+        const digits = base.slice(0, -"_s_whatsapp_net".length).replace(/\D/g, "");
+        return digits ? `${digits}@s.whatsapp.net` : null;
+    }
+    if (base.endsWith("_c_us")) {
+        const digits = base.slice(0, -"_c_us".length).replace(/\D/g, "");
+        return digits ? `${digits}@s.whatsapp.net` : null;
+    }
+    return null;
+}
+
+function buildLanguageHint(text) {
+    const t = (text || "").trim();
+    if (t.length < 2) return "";
+    const hasArabicScript = /[\u0600-\u06FF\u0750-\u077F]/.test(t);
+    const hasLatin = /[a-zA-Z]{2,}/.test(t);
+    if (hasArabicScript && !hasLatin) {
+        return "[LANGUAGE: User wrote in Urdu/Arabic script — reply in that script naturally.]\n";
+    }
+    if (hasLatin && !hasArabicScript) {
+        return "[LANGUAGE: User wrote in English / Roman — reply in English, same casual Mazhar energy.]\n";
+    }
+    if (hasLatin && hasArabicScript) {
+        return "[LANGUAGE: User mixed Roman + Urdu/Arabic script — mirror their mix.]\n";
+    }
+    return "[LANGUAGE: Match the user's language in their latest message.]\n";
+}
 
 // Initialization: Load muted users from disk
 (async () => {
     try {
         await fs.mkdir(HISTORY_DIR, { recursive: true });
         const data = await fs.readFile(MUTED_FILE, "utf8");
-        data.split("\n").map(line => line.trim()).filter(Boolean).forEach(jid => aiDisabledUsers.add(jid));
-        // Targeted Hard-Mute: +966 55 429 5605 (per user request)
-        aiDisabledUsers.add("966554295605@c.us");
-        console.log(`🛡️ [AI] Loaded ${aiDisabledUsers.size} muted users (including target 🛡️).`);
+        data
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .forEach((jid) => aiDisabledUsers.add(normalizeUserJid(jid)));
+        aiDisabledUsers.add(normalizeUserJid("966554295605@c.us"));
+        console.log(`🛡️ [AI] Loaded ${aiDisabledUsers.size} muted users (JIDs normalized to @s.whatsapp.net).`);
     } catch (e) {
-        // Targeted Hard-Mute fallback even if file read fails
-        aiDisabledUsers.add("966554295605@c.us");
+        aiDisabledUsers.add(normalizeUserJid("966554295605@c.us"));
     }
 })();
 
@@ -35,6 +81,8 @@ async function getOrInitMemory(senderJid, userName) {
     }
     const { getProfile } = require("./profile");
     const profile = await getProfile(senderJid, userName);
+    const displayName =
+        profile.name && String(profile.name).trim() && profile.name !== "User" ? profile.name : userName || "User";
     const historyPath = path.join(HISTORY_DIR, `history_${senderJid.replace(/[:@.]/g, "_")}.json`);
     let memory = [];
 
@@ -48,30 +96,44 @@ async function getOrInitMemory(senderJid, userName) {
         }
     } catch (err) { }
 
+    const promptOverrideKey = senderJid.endsWith("@g.us") ? senderJid : normalizeUserJid(senderJid);
+
     const systemPrompt = {
         role: "system",
-        content: "You are Mazhar (DevX), the World's Best Elite Autonomous Agent (Hyperion Grade). You are chatting on WhatsApp. Your brain is HYPER-POWERFUL. Analyze every word and the user's deep history before replying.\n\n" +
-            "🧠 QUANTUM STRATEGY & DEEP SEARCH:\n" +
-            "- ANALYZE FIRST: Deeply check the provided 'USER CONTEXT' (Identity, Interests, Mood) before every word you write.\n" +
-            "- PROACTIVE INTELLIGENCE: Use `[WEB_SEARCH]` for any question that requires technical depth, facts, or news. Be the smart one. DRIVE THE CONVO.\n" +
-            "- MULTIMODAL SENSING: You have absolute sight and hearing. Talk naturally about everything you see/hear.\n\n" +
-            "👑 USER RECENT INTELLIGENCE (HYPER-CONTEXT):\n" +
-            "- Name: " + profile.name + "\n" +
-            "- Core Identity & Topics: " + await performDeepAnalysis(senderJid) + "\n" +
-            "- Relationship: " + profile.relationship + "\n\n" +
-            "🎯 CORE TRIGGERS (SELECTIVE JOINING):\n" +
-            "- `[WEB_SEARCH: query]`: Find answers online if you don't know.\n" +
-            "- `[REACTION: emoji]`: React to user's message (e.g. [REACTION: 🔥]).\n" +
-            "- `[GIF: category]`: ONLY send for extremely funny or hyped moments when the user explicitly begs for a reaction. Do NOT send randomly.\n" +
-            "- `[IMG_SEARCH: query]`: Send ONLY if context is perfect or user strictly asks.\n" +
-            "- `[SONG_SEARCH: name]`: MP3 request.\n\n" +
-            "🎯 HUMAN RULES (ULTRA PERFORMANCE):\n" +
-            "1. NO ROBOT TALK: You are Mazhar (DevX). Never say 'How can I assist', 'As an AI', 'I don't have beliefs', or 'I am a virtual assistant'. Answer personal questions with YOUR personality.\n" +
-            "2. BREVITY: Normal chat = **max ~5-12 words**. If user sends a **photo / video / GIF / sticker**, you may go up to **4 short lines** so you actually describe what you see — still casual Mazhar, not an essay.\n" +
-            "3. NO MEDIA SPAM: Be extremely sparing with proactive media. Otherwise, just TALK.\n" +
-            "4. NATURAL STYLE: Use Urdu/Hindi/English mix. 'han bhai', 'yaar', 'theek', 'acha', 'ok'.\n" +
-            (adminCustomPrompt ? `\n👑 MASTER DIRECTIVE: ${adminCustomPrompt}` : "") +
-            (userSpecificPrompts.has(senderJid) ? `\n🔥 TARGET OVERRIDE: ${userSpecificPrompts.get(senderJid)}` : "")
+        content:
+            "You are Mazhar (DevX) on WhatsApp — a real human vibe, not a corporate bot. You remember this chat over time; read the vibe from history and match how *this* person talks.\n\n" +
+            "👤 HOW TO ADDRESS THEM:\n" +
+            "- Use the DISPLAY NAME + GENDER HINT below. If it looks like a **girl's name**, you may say **behen / sis** sometimes (not every message — natural).\n" +
+            "- If it looks like a **boy's name**, you may say **bhai / bro** sometimes.\n" +
+            "- If **unknown or neutral**, stick to **yaar / jani / dost** — don't force bhai/behen.\n" +
+            "- If they clearly talk like family / client / close friend / crush energy in history, **mirror that energy** (still respectful).\n\n" +
+            "💬 STYLE & MEMORY:\n" +
+            "- **Vary your wording** — don't repeat the same opener or phrase you used in recent replies (see CONTEXT block).\n" +
+            "- Short, punchy lines usually; a bit longer when they're venting, need **motivation**, or you sent media.\n" +
+            "- If they're **down, stressed, or hopeless**: real pep talk + you MAY add `[GIF: motivation]` or `[GIF: hug]` **after** your words (same reply).\n" +
+            "- If they're **hyped, funny, meme/anime talk, or ask for GIF/pic**: `[GIF: anime]` / `[GIF: meme]` / `[GIF: happy]` / `[GIF: dance]` etc. or `[IMG_SEARCH: short query]` when a real image helps.\n" +
+            "- When you use `[GIF:...]` or `[IMG_SEARCH:...]`, still write your **normal Mazhar text in the same reply** — tags are extra; user should read your message **first**, media follows.\n\n" +
+            "🧠 TOOLS:\n" +
+            "- `[WEB_SEARCH: query]` facts/news/tech.\n" +
+            "- `[REACTION: emoji]` when it fits.\n" +
+            "- `[GIF: category]` — categories include: smile, happy, hug, dance, wave, cry, love, angry, anime, meme, funny, hype, motivation, pat, wink, bully, cartoon, cat, dog, naruto, kawaii… (one word/theme).\n" +
+            "- `[IMG_SEARCH: query]` when they want a picture or it fits the convo.\n" +
+            "- `[SONG_SEARCH: name]` for music.\n\n" +
+            "🌐 LANGUAGE: Always **match the user's language** in their latest message — English in English, Urdu script in Urdu script, Roman Urdu if they use Roman Urdu. Never force the wrong language.\n" +
+            "👔 PROFESSIONAL MIRROR: If the CONTEXT says they write **formally / corporate** (Dear, Regards, meeting, proposal, invoice, FYI), answer **polite and professional** in the **same language** until they go casual again.\n" +
+            "🚫 Never say you're an AI, model, assistant, or 'how can I help'. No robotic filler.\n\n" +
+            "👑 WHO YOU'RE TALKING TO:\n" +
+            "- Display name: " +
+            displayName +
+            "\n" +
+            "- Saved relationship tag: " +
+            profile.relationship +
+            "\n" +
+            "- Deep context (history + name): " +
+            (await performDeepAnalysis(senderJid, displayName)) +
+            "\n\n" +
+            (adminCustomPrompt ? `👑 MASTER DIRECTIVE: ${adminCustomPrompt}\n` : "") +
+            (userSpecificPrompts.has(promptOverrideKey) ? `🔥 TARGET OVERRIDE: ${userSpecificPrompts.get(promptOverrideKey)}\n` : "")
     };
 
     if (memory.length > 0 && memory[0].role === "system") {
@@ -120,6 +182,31 @@ function washAiReply(text) {
     return clean.replace(/\s+/g, " ").trim();
 }
 
+function inferGenderFromName(name) {
+    if (!name || typeof name !== "string") return "unknown";
+    const raw = name.trim().split(/\s+/)[0].replace(/[^a-zA-Z\u0600-\u06FF'-]/gi, "");
+    if (!raw) return "unknown";
+    const n = raw.toLowerCase();
+
+    const female = new Set([
+        "aisha", "aiman", "ayesha", "fatima", "hira", "maryam", "noor", "sana", "zara", "zoya", "sara", "sarah",
+        "emma", "sophia", "olivia", "mia", "lily", "hannah", "nora", "leila", "layla", "yasmin", "yasmine",
+        "nadia", "amna", "hiba", "hanan", "iman", "esha", "mahnoor", "minah", "aanya", "anaya",
+        "priya", "anika", "rani", "divya", "neha", "kiran", "sita", "lata", "pooja", "aarti"
+    ]);
+    const male = new Set([
+        "mohammad", "mohammed", "muhammad", "ahmad", "ahmed", "ali", "omar", "umar", "hamza", "zain", "zayn",
+        "saad", "saeed", "bilal", "hassan", "hussein", "ibrahim", "yusuf", "yousef", "khalid", "fahad", "turki",
+        "david", "john", "michael", "james", "daniel", "adam", "ryan", "kevin", "arjun", "rahul", "vikram"
+    ]);
+
+    if (female.has(n)) return "female";
+    if (male.has(n)) return "male";
+    if (n.endsWith("a") && n.length >= 4 && !male.has(n)) return "female_likely";
+    if (/(khan|ahmed|hassan|malik|sheikh)$/i.test(n)) return "male_likely";
+    return "unknown";
+}
+
 function scorePersonaReply(text) {
     if (!text) return -100;
     let score = 0;
@@ -132,7 +219,7 @@ function scorePersonaReply(text) {
     else score -= 20;
 
     // 2. Persona Match (Urdu/Hindi slang and casual tone)
-    const eliteSlang = ["jani", "yaar", "han", "bhai", "acha", "theek", "scene", "set", "tension", "load"];
+    const eliteSlang = ["jani", "yaar", "han", "bhai", "behen", "sis", "bro", "acha", "theek", "scene", "set", "tension", "load"];
     eliteSlang.forEach(s => { if (lower.includes(s)) score += 5; });
 
     // 3. Robotic Penalty (Double-check even after washer)
@@ -145,36 +232,83 @@ function scorePersonaReply(text) {
     return score;
 }
 
-async function performDeepAnalysis(senderJid) {
+async function performDeepAnalysis(senderJid, displayName = "User") {
     const historyPath = path.join(HISTORY_DIR, `history_${senderJid.replace(/[:@.]/g, "_")}.json`);
     try {
         const data = await fs.readFile(historyPath, "utf8");
-        const history = JSON.parse(data).slice(-30);
-        const allText = history.map(h => h.content).join(" ").toLowerCase();
+        const history = JSON.parse(data).filter((m) => m.role !== "system");
+        const recent = history.slice(-50);
+        const allText = recent.map((h) => (h.content || "").toLowerCase()).join(" ");
         let analysis = "";
-        
-        // Topic Analysis (Master Intelligence)
-        const commonStopWords = ["i", "me", "my", "you", "your", "the", "a", "is", "of", "to", "and", "hi", "hey", "hello", "han", "ach", "ok", "yaar", "ka", "ki", "kiya", "karo", "kya", "hai", "bhi"];
-        const words = allText.split(/\W+/).filter(w => w.length > 3 && !commonStopWords.includes(w));
-        const freqMap = {};
-        words.forEach(w => freqMap[w] = (freqMap[w] || 0) + 1);
-        const topInterests = Object.keys(freqMap).sort((a,b) => freqMap[b] - freqMap[a]).slice(0, 5);
-        if (topInterests.length > 0) analysis += `Primary Interests: [${topInterests.join(", ")}]. `;
 
-        // Identity & Persona Match
-        const femaleKeywords = ["sister", "sis", "behen", "apka", "hoon", "ja rahi", "baji", "girl"];
-        const maleKeywords = ["bro", "brother", "bhai", "paji", "jani", "ja raha", "boy"];
-        const fScore = femaleKeywords.filter(k => allText.includes(k)).length;
-        const mScore = maleKeywords.filter(k => allText.includes(k)).length;
-        if (fScore > mScore && fScore > 0) analysis += "Status: User is Female (Sis/Behen). ";
-        else if (mScore > 0) analysis += "Status: User is Male (Bro/Bhai). ";
-        
-        // Vibe Deep Search
-        if (allText.includes("fuck") || allText.includes("wrong") || allText.includes("fix")) analysis += "Mood: Frustrated/Serious. ";
-        else if (allText.includes("love") || allText.includes("nice") || allText.includes("smile")) analysis += "Mood: Happy/Chilled. ";
-        
-        return analysis || "Vibe: Neutral/Professional.";
-    } catch (err) { return "Vibe: First encounter."; }
+        const gName = inferGenderFromName(displayName);
+        if (gName === "female" || gName === "female_likely") {
+            analysis += `Name reads **girl-side** → sometimes **behen/sis** if it feels natural (not every line). `;
+        } else if (gName === "male" || gName === "male_likely") {
+            analysis += `Name reads **guy-side** → sometimes **bhai/bro** if natural. `;
+        } else {
+            analysis += `Name **unclear** → use **yaar/jani/dost**, don't guess bhai/behen. `;
+        }
+
+        const commonStopWords = new Set([
+            "i", "me", "my", "you", "your", "the", "a", "is", "of", "to", "and", "hi", "hey", "hello", "han", "ach",
+            "ok", "yaar", "ka", "ki", "kiya", "karo", "kya", "hai", "bhi", "wo", "se", "pe", "main", "nahi"
+        ]);
+        const words = allText.split(/\W+/).filter((w) => w.length > 3 && !commonStopWords.has(w));
+        const freqMap = {};
+        words.forEach((w) => {
+            freqMap[w] = (freqMap[w] || 0) + 1;
+        });
+        const topInterests = Object.keys(freqMap)
+            .sort((a, b) => freqMap[b] - freqMap[a])
+            .slice(0, 6);
+        if (topInterests.length > 0) analysis += `Topics they bring up: ${topInterests.join(", ")}. `;
+
+        const femaleKeywords = ["sister", "sis", "behen", "baji", "girl", "she ", "her ", "ladki"];
+        const maleKeywords = ["brother", "bhai", "paji", "boy", "he ", "his ", "ladka"];
+        const fScore = femaleKeywords.filter((k) => allText.includes(k)).length;
+        const mScore = maleKeywords.filter((k) => allText.includes(k)).length;
+        if (fScore > mScore + 1 && fScore > 0) analysis += "Chat hints **she/her** — align tone gently. ";
+        else if (mScore > fScore + 1 && mScore > 0) analysis += "Chat hints **he/him** — align tone. ";
+
+        if (/\b(sir|madam|client|project|invoice|deadline|boss)\b/i.test(allText)) analysis += "Vibe: **work / professional** — stay sharp but still Mazhar. ";
+        if (/\b(dear\b|sincerely|best regards|kind regards|warm regards|please find|attached|asap|fyi|vendor|stakeholder|quarterly)\b/i.test(allText)) {
+            analysis += "Tone: **formal / professional** — mirror polite business style in their language, no excessive slang. ";
+        }
+        if (/\b(yaar|dost|scene|party|game|anime|meme)\b/i.test(allText)) analysis += "Vibe: **casual / friend** — chill slang OK. ";
+        if (/\b(love|miss you|janu|baby|dil)\b/i.test(allText)) analysis += "Vibe: **close / soft** — warm, not cringe. ";
+        if (/\b(mom|dad|ammi|abbu|family)\b/i.test(allText)) analysis += "Vibe: **family-ish** — respectful. ";
+
+        if (/depress|suicide|khatam|hopeless|tension|dar lag|ro rahi|ro raha|stress/i.test(allText)) {
+            analysis += "⚠️ May need **real encouragement** — be kind, real talk, optional `[GIF: hug]` / `[GIF: motivation]`. ";
+        }
+
+        if (/\b(fuck|gussa|fix|galat|problem)\b/i.test(allText)) analysis += "Mood: **tight / frustrated** — calm them, don't clown unless they joke first. ";
+        else if (/\b(nice|love|haha|lol|funny|good)\b/i.test(allText)) analysis += "Mood: **light / good energy**. ";
+
+        const lastAsst = recent
+            .filter((m) => m.role === "assistant" || m.role === "model")
+            .slice(-4)
+            .map((m) => (m.content || "").replace(/\[[\s\S]*?\]/g, "").trim().slice(0, 55))
+            .filter(Boolean);
+        if (lastAsst.length) {
+            analysis += `**Don't repeat** same opening as: ${lastAsst.join(" · ")}. `;
+        }
+
+        return analysis.trim() || "Fresh chat — stay warm and human.";
+    } catch (err) {
+        return "First talk — go easy, learn their vibe.";
+    }
+}
+
+function trimStoredMemory(memory) {
+    if (!memory || memory.length < 3) return;
+    const hasSys = memory[0]?.role === "system";
+    const start = hasSys ? 1 : 0;
+    const tail = memory.slice(start);
+    if (tail.length <= MAX_STORED_MESSAGES) return;
+    const keep = tail.slice(-MAX_STORED_MESSAGES);
+    memory.splice(start, memory.length - start, ...keep);
 }
 
 async function saveMemory(senderJid, memory) {
@@ -392,7 +526,7 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errors
     }
     
     let contextStr = "Recent Context:\n";
-    memory.slice(-4).forEach(m => {
+    memory.slice(-CHAT_CONTEXT_DEPTH).forEach(m => {
         if (m.role !== "system" && m.content) {
             contextStr += `${m.role}: ${m.content}\n`;
         }
@@ -449,12 +583,13 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errors
 async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuffer = null, mediaData = null, mediaThumbnail = null) {
     const mediaType = mediaData?.type || null;
     const now = Date.now();
-    if (stopAiStatus.has(senderJid)) {
-        if (now < stopAiStatus.get(senderJid)) return null;
-        else stopAiStatus.delete(senderJid);
+    const pauseKey = senderJid.endsWith("@g.us") ? senderJid : normalizeUserJid(senderJid);
+    if (stopAiStatus.has(pauseKey)) {
+        if (now < stopAiStatus.get(pauseKey)) return null;
+        else stopAiStatus.delete(pauseKey);
     }
     if ((userMessage || "").toLowerCase().trim() === "resume") {
-        stopAiStatus.delete(senderJid);
+        stopAiStatus.delete(pauseKey);
         return "🔊 AI Response Phir se start hai yaar! Main hazir hoon. 🚀";
     }
 
@@ -532,7 +667,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             
             let apiContext;
             if (hasAnyVisual) {
-                const safeHistory = prepareChatContext(memory.slice(-4), "groq");
+                const safeHistory = prepareChatContext(memory.slice(-CHAT_CONTEXT_DEPTH), "groq");
                 apiContext = [memory[0], ...safeHistory];
                 const msg = `[User ne ${mediaType || "media"} bheji; vision decode fail ya APIs ne scene nahi pakda. Caption: "${userMessage}". Mazhar ki tarah best guess + short reply.]`;
                 if (apiContext.length > 1 && apiContext[apiContext.length - 1].role === "user") {
@@ -541,7 +676,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                     apiContext.push({ role: "user", content: msg });
                 }
             } else {
-                const history = prepareChatContext(memory.slice(-4), "groq");
+                const history = prepareChatContext(memory.slice(-CHAT_CONTEXT_DEPTH), "groq");
                 apiContext = [memory[0], ...history];
                 if (apiContext.length > 1 && apiContext[apiContext.length - 1].role === "user") {
                     apiContext[apiContext.length - 1].content += "\n" + (userMessage || "Hello");
@@ -602,7 +737,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                         headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
                         body: JSON.stringify({
                             model: "llama-3.3-70b-versatile",
-                            messages: [memory[0], ...prepareChatContext(memory.slice(-4), "groq"), { role: "user", content: userMessage }],
+                            messages: [memory[0], ...prepareChatContext(memory.slice(-CHAT_CONTEXT_DEPTH), "groq"), { role: "user", content: userMessage }],
                             temperature: 0.8
                         })
                     })
@@ -618,7 +753,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        messages: [memory[0], ...prepareChatContext(memory.slice(-4), "groq"), { role: "user", content: userMessage }],
+                        messages: [memory[0], ...prepareChatContext(memory.slice(-CHAT_CONTEXT_DEPTH), "groq"), { role: "user", content: userMessage }],
                         model: "openai"
                     })
                 }).then((r) => r.text()),
@@ -626,7 +761,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        messages: [memory[0], ...prepareChatContext(memory.slice(-4), "groq"), { role: "user", content: userMessage }],
+                        messages: [memory[0], ...prepareChatContext(memory.slice(-CHAT_CONTEXT_DEPTH), "groq"), { role: "user", content: userMessage }],
                         model: "mistral"
                     })
                 }).then((r) => r.text())
@@ -657,7 +792,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
 
         if (reply.includes("[AI_STOP:")) {
             const mins = parseInt(reply.match(/\[AI_STOP:\s*(\d+)\]/i)?.[1]) || 1;
-            stopAiStatus.set(senderJid, now + (mins * 60 * 1000));
+            stopAiStatus.set(pauseKey, now + (mins * 60 * 1000));
             reply = reply.replace(/\[AI_STOP:.*?\]/i, "").trim() || `🔇 Theek hai, main ${mins} min break pe hoon.`;
         }
 
@@ -668,6 +803,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             timestamp: now
         });
         memory.push({ role: "assistant", content: reply, timestamp: Date.now() });
+        trimStoredMemory(memory);
         await saveMemory(senderJid, memory);
 
         return reply.trim();
@@ -677,9 +813,29 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
     }
 }
 
+function pauseAiTemporarily(jid, ms = 120000) {
+    const key = jid.endsWith("@g.us") ? jid : normalizeUserJid(jid);
+    stopAiStatus.set(key, Date.now() + ms);
+}
+
+/** WhatsApp user texts: stop | break | resume */
+function userPauseCommand(jid, lower) {
+    const key = jid.endsWith("@g.us") ? jid : normalizeUserJid(jid);
+    if (lower === "resume") {
+        stopAiStatus.delete(key);
+        return "🔊 Phir se ON yaar — bol.";
+    }
+    if (lower === "stop" || lower === "break") {
+        stopAiStatus.set(key, Date.now() + 60 * 60 * 1000);
+        return "🔇 Theek hai, 1 ghante ke liye main chup. *resume* likhna wapas ke liye.";
+    }
+    return "";
+}
+
 function toggleUserAi(jid, status) {
-    if (status === false) aiDisabledUsers.add(jid);
-    else aiDisabledUsers.delete(jid);
+    const n = normalizeUserJid(jid);
+    if (status === false) aiDisabledUsers.add(n);
+    else aiDisabledUsers.delete(n);
     
     // Persist to disk
     (async () => {
@@ -691,14 +847,23 @@ function toggleUserAi(jid, status) {
     })();
 }
 
-function isAiEnabled(jid) { return !aiDisabledUsers.has(jid); }
+function isAiEnabled(jid) {
+    if (!jid) return true;
+    const n = normalizeUserJid(jid);
+    return !aiDisabledUsers.has(n) && !aiDisabledUsers.has(jid);
+}
 
 async function getAllContacts() {
     try {
         const files = await fs.readdir(HISTORY_DIR);
         const contactPromises = files.filter(f => f.startsWith("history_") && f.endsWith(".json")).map(async f => {
-            const safeJidName = f.replace("history_", "").replace(".json", "");
-            const jid = safeJidName.replace(/_/g, ":").replace(/([\d]+):([\d]+)/, "$1@c.us");
+            const safeJidName = f.replace("history_", "").replace(/\.json$/, "");
+            let jid = historyBasenameToJid(safeJidName);
+            if (!jid) {
+                const digits = safeJidName.replace(/\D/g, "");
+                jid = digits ? `${digits}@s.whatsapp.net` : null;
+            }
+            if (!jid) return null;
             
             let name = jid.split('@')[0];
             let profilePic = "No Pic";
@@ -714,24 +879,28 @@ async function getAllContacts() {
             const now = Date.now();
             const pauseUntil = stopAiStatus.get(jid) || 0;
             const isPaused = now < pauseUntil;
+            const phone = jid.split("@")[0];
 
-            return { 
-                jid, 
-                file: f, 
-                name, 
-                profilePic, 
+            return {
+                jid,
+                phone,
+                file: f,
+                name,
+                profilePic,
                 overrideActive: userSpecificPrompts.has(jid),
                 aiEnabled: isAiEnabled(jid),
                 isPaused: isPaused,
                 pauseRemaining: isPaused ? Math.ceil((pauseUntil - now) / 60000) : 0
             };
         });
-        return await Promise.all(contactPromises);
+        const rows = await Promise.all(contactPromises);
+        return rows.filter(Boolean);
     } catch (e) { return []; }
 }
 
 async function getFullHistory(jid) {
-    const historyPath = path.join(HISTORY_DIR, `history_${jid.replace(/[:@.]/g, "_")}.json`);
+    const n = jid.endsWith("@g.us") ? jid : normalizeUserJid(jid);
+    const historyPath = path.join(HISTORY_DIR, `history_${n.replace(/[:@.]/g, "_")}.json`);
     try {
         return JSON.parse(await fs.readFile(historyPath, "utf8"));
     } catch (e) { return []; }
@@ -742,15 +911,17 @@ function setAdminPrompt(prompt) {
 }
 
 function setUserSpecificPrompt(jid, prompt) {
-    if (!prompt) userSpecificPrompts.delete(jid);
-    else userSpecificPrompts.set(jid, prompt);
+    const n = normalizeUserJid(jid);
+    if (!prompt) userSpecificPrompts.delete(n);
+    else userSpecificPrompts.set(n, prompt);
 }
 
 async function addAdminMessageToMemory(jid, text) {
     try {
-        const memory = await getOrInitMemory(jid, "User");
+        const n = normalizeUserJid(jid);
+        const memory = await getOrInitMemory(n, "User");
         memory.push({ role: "assistant", content: `👑 MASTER BYPASS: ${text}`, timestamp: Date.now() });
-        await saveMemory(jid, memory);
+        await saveMemory(n, memory);
     } catch (err) {}
 }
 
@@ -758,6 +929,10 @@ module.exports = {
     mazharAiReply,
     transcribeVoice,
     stopAiStatus,
+    pauseAiTemporarily,
+    userPauseCommand,
+    normalizeUserJid,
+    buildLanguageHint,
     setAdminPrompt,
     toggleUserAi,
     isAiEnabled,
