@@ -212,11 +212,7 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
     let model = "gemini-1.5-flash"; 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    // Clean conversational history for Gemini
-    const history = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "gemini");
     const currentParts = [];
-    
-    // Gemini 1.5 prefers text FIRST in multimodal parts for some versions
     currentParts.push({ text: userMessage || "What is in this media? Respond naturally." });
 
     if (mediaBuffer) {
@@ -228,16 +224,9 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
         currentParts.push({ inline_data: { mime_type: mimeType, data: mediaBuffer.toString("base64") } });
     }
     
-    // Combine history and current message
-    let contents = [...history];
-    const lastIsUser = contents.length > 0 && contents[contents.length - 1].role === "user";
-
-    // If history ends with user, merge our current image/message into it to maintain role alternation
-    if (lastIsUser) {
-        contents[contents.length - 1].parts.push(...currentParts);
-    } else {
-        contents.push({ role: "user", parts: currentParts });
-    }
+    // ISOLATED STRIKE: Skip the chaotic history and just send the System Prompt + Image.
+    // This perfectly routes around the 400 Bad Request role alternation errors.
+    const contents = [{ role: "user", parts: currentParts }];
 
     const body = { 
         system_instruction: { parts: [{ text: memory[0].content }] },
@@ -306,26 +295,17 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             const frameBuffer = await extractFrame(mediaBuffer);
             const base64Media = frameBuffer.toString("base64");
             
-            // Clean history for Groq with Role Alternation
-            const history = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "groq");
-            const apiContext = [memory[0], ...history];
-            
-            // Fix: If history ends with a user message, we must merge into it or add a model message
-            const lastMessage = apiContext[apiContext.length - 1];
-            if (lastMessage.role === "user") {
-                lastMessage.content = [
-                    { type: "text", text: lastMessage.content + "\n" + (userMessage || "Describe this media content.") },
-                    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
-                ];
-            } else {
-                apiContext.push({
+            // ISOLATED STRIKE: System prompt + Image Only to bypass 400s
+            const apiContext = [
+                memory[0], 
+                {
                     role: "user",
                     content: [
                         { type: "text", text: userMessage || "Describe this media content." },
                         { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
                     ]
-                });
-            }
+                }
+            ];
 
             const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
