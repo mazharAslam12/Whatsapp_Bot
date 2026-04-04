@@ -206,9 +206,12 @@ function prepareChatContext(memory, engine) {
     });
 }
 
-async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
+async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errorsList) {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return null;
+    if (!apiKey) {
+        errorsList && errorsList.push("Gemini: Missing API Key");
+        return null;
+    }
 
     const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-8b", "gemini-1.5-pro-latest"];
 
@@ -257,10 +260,12 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
                 }
             } else {
                 const err = await res.text();
+                errorsList && errorsList.push(`Gemini (${model}): Status ${res.status}`);
                 console.error(`⚠️ [GEMINI ${model} FAIL] Status: ${res.status}.`);
                 if (res.status === 429) await new Promise(r => setTimeout(r, 1000));
             }
         } catch (e) {
+            errorsList && errorsList.push(`Gemini (${model}): Fetch Failed`);
             console.error(`❌ [GEMINI ${model} FETCH FAIL]`, e.message);
         }
     }
@@ -282,15 +287,14 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
     const groqKey = process.env.GROQ_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
     
-    if (!groqKey && !geminiKey) return "⚠️ AI keys are missing. Please configure .env";
-
     const memory = await getOrInitMemory(senderJid, userName);
     let reply = null;
+    let errorsList = [];
 
     try {
         if (mediaBuffer && geminiKey) {
             console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Gemini Fallback Chain`);
-            reply = await geminiAiReply(userMessage, memory, mediaBuffer, mediaType);
+            reply = await geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errorsList);
         }
 
         if (!reply && mediaBuffer && groqKey) {
@@ -322,11 +326,13 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                         reply = data?.choices?.[0]?.message?.content;
                         if (reply) break;
                     } else {
+                        errorsList.push(`Groq Vision (${vModel}): Status ${res.status}`);
                         console.error(`⚠️ [GROQ VISION ${vModel} FAIL] Status: ${res.status}`);
                         if (res.status === 429) await new Promise(r => setTimeout(r, 1000));
                     }
                 }
             } else {
+                errorsList.push(`Groq Vision: Skipped (media format ${mediaType} not supported natively)`);
                 console.log(`⚠️ Skipped Groq Vision for ${mediaType} (not supported natively without ffmpeg).`);
             }
         }
@@ -381,10 +387,12 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                             break;
                         }
                     } else {
+                        errorsList.push(`Groq Text (${tModel}): Status ${res.status}`);
                         console.error(`⚠️ [GROQ TEXT ${tModel} FAIL] Status: ${res.status}`);
                         if (res.status === 429) await new Promise(r => setTimeout(r, 1500));
                     }
                 } catch(e) {
+                    errorsList.push(`Groq Text (${tModel}): Fetch Failed`);
                     console.error(`❌ [GROQ TEXT ${tModel} FETCH FAIL]`, e.message);
                 }
                 attempts++;
@@ -393,14 +401,57 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
 
         if (!reply && !mediaBuffer && geminiKey) {
             console.log("🔍 [ANALYSIS] Engine: Gemini Text Fallback Chain");
-            reply = await geminiAiReply(userMessage, memory, null, null);
+            reply = await geminiAiReply(userMessage, memory, null, null, errorsList);
+        }
+
+        // 4. POLLINATIONS PUBLIC TEXT FALLBACK (UNLIMITED & FREE)
+        if (!reply) {
+            console.log("🔍 [ANALYSIS] Engine: Pollinations Free Text Fallback Chain");
+            let apiContext = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "groq");
+            
+            const firstMsg = { role: "system", content: memory[0].content };
+            
+            if (mediaBuffer) {
+                const msg = `[Sent a Media File, but APIs failed to view it. Caption: "${userMessage}"]`;
+                apiContext.push({ role: "user", content: msg });
+            } else {
+                apiContext.push({ role: "user", content: userMessage || "Hello" });
+            }
+
+            const pollModels = ["openai", "mistral", "llama", "searchgpt"];
+            for (const pModel of pollModels) {
+                try {
+                    const url = `https://text.pollinations.ai/`;
+                    const res = await fetch(url, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ messages: [firstMsg, ...apiContext], model: pModel })
+                    });
+                    if (res.ok) {
+                        const text = await res.text();
+                        if (text) {
+                            reply = text;
+                            console.log(`✅ [POLLINATIONS SUCCESS] Engine: ${pModel}`);
+                            break;
+                        }
+                    } else {
+                        errorsList.push(`Pollinations (${pModel}): Status ${res.status}`);
+                    }
+                } catch (e) {
+                    errorsList.push(`Pollinations (${pModel}): Fetch Failed`);
+                }
+            }
         }
 
     } catch (err) {
+        errorsList.push(`Router Error: ${err.message}`);
         console.error("❌ [ROUTER ERROR]", err.message);
     }
 
-    if (!reply) return "❌ AI brain is busy. Try again soon.";
+    if (!reply) {
+        let uniqueErrors = [...new Set(errorsList)];
+        return `❌ AI brain is completely exhausted.\n\n*Diagnostics Trace:*\n- ${uniqueErrors.join("\n- ")}\n\n⚠️ Keys might be expired or rate limited heavily.`;
+    }
 
     if (reply.includes("[AI_STOP:")) {
         const mins = parseInt(reply.match(/\[AI_STOP:\s*(\d+)\]/i)?.[1]) || 1;
