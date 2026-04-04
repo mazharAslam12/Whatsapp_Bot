@@ -156,11 +156,20 @@ async function transcribeVoice(buffer) {
 }
 
 // --- UTILITIES ---
+async function extractFrame(buffer) {
+    try {
+        // Extracts the first frame of a GIF or video for Groq Vision compatibility
+        return await sharp(buffer, { animated: true }).toFormat("jpeg").toBuffer();
+    } catch (e) {
+        return buffer; // Fallback to original
+    }
+}
+
 function sanitizeHistory(memory, engine) {
     return memory.filter(m => m.role !== "system").map(m => {
         let role = m.role;
         if (engine === "gemini" && role === "assistant") role = "model";
-        if (engine === "groq" && role === "model") role = "assistant";
+        if (engine === "groq" && (role === "model" || role === "assistant")) role = "assistant";
         
         return {
             role: role,
@@ -262,7 +271,11 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             const frameBuffer = await extractFrame(mediaBuffer);
             const base64Media = frameBuffer.toString("base64");
             
-            const apiContext = [memory[0], ...memory.slice(-MAX_MEMORY_LENGTH)];
+            const history = memory.slice(-MAX_MEMORY_LENGTH).map(m => ({ 
+                role: m.role === "model" || m.role === "assistant" ? "assistant" : "user", 
+                content: m.content || "" 
+            }));
+            const apiContext = [memory[0], ...history];
             apiContext.push({
                 role: "user",
                 content: [
@@ -279,6 +292,9 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             if (res.ok) {
                 const data = await res.json();
                 reply = data?.choices?.[0]?.message?.content;
+            } else {
+                const err = await res.text();
+                console.error(`🔍 [GROQ VISION FAIL] Status: ${res.status}. Body: ${err.substring(0, 100)}`);
             }
         }
 
