@@ -398,7 +398,7 @@ async function handleMessage(sock, msg) {
         // Send the cleaned text reply
         if (finalCleanReply) {
             console.log(`✅ [SYSTEM] Sending final clean reply: ${finalCleanReply.substring(0, 30)}...`);
-            await safeSendMessage(sock, jid, { text: finalCleanReply });
+            await safeSendMessage(sock, jid, { text: finalCleanReply }, { quoted: msg });
             events.emit("ai_reply", { text: finalCleanReply, jid: jid });
 
             // Persist the AI's cleaned text in memory (overwriting the raw version)

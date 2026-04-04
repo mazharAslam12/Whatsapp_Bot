@@ -176,7 +176,7 @@ async function extractFrame(buffer, mediaType) {
 // --- UTILITIES ---
 function prepareChatContext(memory, engine) {
     const raw = memory.filter(m => m.role !== "system" && m.content && m.content.trim() !== "");
-    const merged = [];
+    let merged = [];
     
     raw.forEach(m => {
         let role = m.role;
@@ -185,7 +185,9 @@ function prepareChatContext(memory, engine) {
         
         if (merged.length > 0 && merged[merged.length - 1].role === role) {
             if (engine === "gemini") {
-                merged[merged.length - 1].parts[0].text += "\n" + m.content.trim();
+                if (merged[merged.length - 1].parts?.[0]) {
+                    merged[merged.length - 1].parts[0].text += "\n" + m.content.trim();
+                }
             } else {
                 merged[merged.length - 1].content += "\n" + m.content.trim();
             }
@@ -193,10 +195,16 @@ function prepareChatContext(memory, engine) {
             merged.push({
                 role: role,
                 parts: engine === "gemini" ? [{ text: m.content.trim() }] : undefined,
-                content: engine === "groq" ? m.content.trim() : undefined
+                content: engine !== "gemini" ? m.content.trim() : undefined
             });
         }
     });
+
+    // CRITICAL: Groq and Pollinations REQUIRE the sequence to start with 'user' role.
+    // If the first message in the history is 'assistant', shift it out.
+    if (engine !== "gemini" && merged.length > 0 && merged[0].role === "assistant") {
+        merged.shift();
+    }
 
     return merged.map(m => {
         const clean = { role: m.role };
