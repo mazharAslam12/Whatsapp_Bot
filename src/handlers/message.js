@@ -131,6 +131,7 @@ async function handleMessage(sock, msg) {
         let mediaBuffer = null;
         let mediaType = null;
         let mediaData = null;
+        let mediaThumbnail = content[msgType]?.jpegThumbnail || null; // Instant Whatsapp Preview
 
         const mediaTypes = ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "stickerMessage"];
         if (mediaTypes.includes(msgType)) {
@@ -139,7 +140,7 @@ async function handleMessage(sock, msg) {
                 if (mediaBuffer) {
                     console.log(`✅ [SYSTEM] Media Downloaded: ${msgType} (${mediaBuffer.length} bytes)`);
                 } else {
-                    console.warn(`⚠️ [SYSTEM] Media Download FAILED for ${msgType}`);
+                    console.warn(`⚠️ [SYSTEM] Media Download FAILED for ${msgType}. Relying on Thumbnail.`);
                 }
                 
                 mediaType = msgType.replace("Message", "");
@@ -247,7 +248,7 @@ async function handleMessage(sock, msg) {
         const finalPrompt = prompt.replace("@" + sock.user.id.split(":")[0], "").trim() + quotedContext;
         if (!finalPrompt && !mediaBuffer) return;
 
-        const aiReply = await mazharAiReply(finalPrompt, jid, pushName, mediaBuffer, mediaData);
+        const aiReply = await mazharAiReply(finalPrompt, jid, pushName, mediaBuffer, mediaData, mediaThumbnail);
 
         console.log(`💎 [AI-BRAIN] Raw: ${aiReply.substring(0, 50)}...`);
 

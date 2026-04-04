@@ -326,7 +326,7 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errors
     return null;
 }
 
-async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuffer = null, mediaData = null) {
+async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuffer = null, mediaData = null, mediaThumbnail = null) {
     const mediaType = mediaData?.type || null;
     const now = Date.now();
     if (stopAiStatus.has(senderJid)) {
@@ -351,14 +351,17 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             reply = await geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errorsList);
         }
 
-        if (!reply && mediaBuffer && groqKey) {
-            console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Groq Vision Fallback Chain`);
-            const frameBuffer = await extractFrame(mediaBuffer, mediaType);
+        if (!reply && (mediaBuffer || mediaThumbnail) && groqKey) {
+            console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Groq Vision (Parallel Selection)`);
             
-            if (frameBuffer) {
-                const base64Media = frameBuffer.toString("base64");
+            // Priority 1: High Res Frame Extraction
+            // Priority 2: Instant WhatsApp Thumbnail
+            const visionBuffer = (await extractFrame(mediaBuffer, mediaType)) || mediaThumbnail;
+            
+            if (visionBuffer) {
+                const base64Media = Buffer.isBuffer(visionBuffer) ? visionBuffer.toString("base64") : visionBuffer;
                 const apiContext = [
-                    { role: "system", content: "Analyze the attached image and describe it briefly based on internal context." }, 
+                    { role: "system", content: "Analyze the attached preview image and describe the core action/content briefly for a WhatsApp reply." }, 
                     {
                         role: "user",
                         content: [
@@ -370,24 +373,28 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
 
                 const visionModels = ["llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"];
                 for (const vModel of visionModels) {
-                    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
-                        body: JSON.stringify({ model: vModel, messages: apiContext, temperature: 0.7 })
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        reply = data?.choices?.[0]?.message?.content;
-                        if (reply) break;
-                    } else {
-                        errorsList.push(`Groq Vision (${vModel}): Status ${res.status}`);
-                        console.error(`⚠️ [GROQ VISION ${vModel} FAIL] Status: ${res.status}`);
-                        if (res.status === 429) await new Promise(r => setTimeout(r, 1000));
+                    try {
+                        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
+                            body: JSON.stringify({ model: vModel, messages: apiContext, temperature: 0.7 })
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            reply = data?.choices?.[0]?.message?.content;
+                            if (reply) {
+                                console.log(`✅ [GROQ VISION SUCCESS] Engine: ${vModel} (Thumbnail/Frame)`);
+                                break;
+                            }
+                        } else {
+                            errorsList.push(`Groq Vision (${vModel}): Status ${res.status}`);
+                        }
+                    } catch (e) {
+                        errorsList.push(`Groq Vision (${vModel}): Fetch Failed`);
                     }
                 }
             } else {
-                errorsList.push(`Groq Vision: Skipped (media format ${mediaType} not supported natively)`);
-                console.log(`⚠️ Skipped Groq Vision for ${mediaType} (not supported natively without ffmpeg).`);
+                errorsList.push(`Groq Vision: No viable buffer/thumbnail`);
             }
         }
 
@@ -498,8 +505,10 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             }
         }
 
-        if (!reply) {
-            return "Yaar net ka scene kharab hai, dobara try karo ya waps bhejo.";
+        if (!reply && (mediaBuffer || mediaThumbnail)) {
+            return "Yaar ye file khul nahi rahi ya corrupt hai, dobara try karo ya waps bhejo.";
+        } else if (!reply) {
+            return "Yaar net ka scene kharab hai, dobara query karo.";
         }
 
         reply = washAiReply(reply);
