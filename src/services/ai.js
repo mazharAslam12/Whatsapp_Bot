@@ -8,7 +8,7 @@ const conversationMemory = new Map();
 const stopAiStatus = new Map(); // { jid: untilTime }
 const aiDisabledUsers = new Set(); // JIDs where AI is permanently disabled by admin
 const userSpecificPrompts = new Map(); // Master override custom rules per user
-const MAX_MEMORY_LENGTH = 15;
+const MAX_MEMORY_LENGTH = 30; // Expanded to 30 for 'Ultra Deep' Chat Context
 
 const HISTORY_DIR = path.join(__dirname, "../../user_files");
 const MUTED_FILE = path.join(HISTORY_DIR, "muted_users.txt");
@@ -161,17 +161,32 @@ async function extractFrame(buffer) {
 }
 
 function sanitizeHistory(memory, engine) {
-    return memory.filter(m => m.role !== "system" && m.content && m.content.trim() !== "").map(m => {
+    const raw = memory.filter(m => m.role !== "system" && m.content && m.content.trim() !== "");
+    const merged = [];
+    
+    // SMART MERGE: Roles MUST alternate (User -> Model -> User -> Model)
+    raw.forEach(m => {
         let role = m.role;
         if (engine === "gemini" && role === "assistant") role = "model";
         if (engine === "groq" && (role === "model" || role === "assistant")) role = "assistant";
         
-        return {
-            role: role,
-            parts: engine === "gemini" ? [{ text: m.content.trim() }] : undefined,
-            content: engine === "groq" ? m.content.trim() : undefined
-        };
-    }).map(m => {
+        if (merged.length > 0 && merged[merged.length - 1].role === role) {
+            // Append to previous message of same role
+            if (engine === "gemini") {
+                merged[merged.length - 1].parts[0].text += "\n" + m.content.trim();
+            } else {
+                merged[merged.length - 1].content += "\n" + m.content.trim();
+            }
+        } else {
+            merged.push({
+                role: role,
+                parts: engine === "gemini" ? [{ text: m.content.trim() }] : undefined,
+                content: engine === "groq" ? m.content.trim() : undefined
+            });
+        }
+    });
+
+    return merged.map(m => {
         const clean = { role: m.role };
         if (m.parts) clean.parts = m.parts;
         if (m.content) clean.content = m.content;
@@ -201,7 +216,15 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
     currentParts.push({ text: userMessage || "What is in this media? Respond naturally." });
 
     // Combine history and current message
-    const contents = [...history, { role: "user", parts: currentParts }];
+    let contents = [...history];
+    const lastIsUser = contents.length > 0 && contents[contents.length - 1].role === "user";
+
+    // If history ends with user, merge our current image/message into it
+    if (lastIsUser) {
+        contents[contents.length - 1].parts.push(...currentParts);
+    } else {
+        contents.push({ role: "user", parts: currentParts });
+    }
 
     const body = { 
         system_instruction: { parts: [{ text: memory[0].content }] },

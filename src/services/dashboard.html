@@ -784,16 +784,30 @@
         if (media) {
             const mUrl = media.url;
             const mType = media.type || 'document';
+            const dlBtn = `<a href="${mUrl}" download class="download-btn" title="Download Media"><i class="fas fa-download"></i></a>`;
             
             if (mType === 'image' || mType === 'sticker') {
-                mediaMarkup = `<div class="media-attachment" style="background: rgba(0,0,0,0.4);"><img src="${mUrl}" loading="lazy" onclick="window.open('${mUrl}')" style="cursor:pointer; max-height:350px; border-radius:12px;"></div>`;
+                mediaMarkup = `<div class="media-attachment" style="position:relative; background: rgba(0,0,0,0.4); border-radius:12px; overflow:hidden;">
+                    <img src="${mUrl}" loading="lazy" style="max-height:350px; border-radius:12px; width:100%; object-fit:contain;">
+                    ${dlBtn}
+                </div>`;
             } else if (mType === 'video' || mType === 'gif') {
-                mediaMarkup = `<div class="media-attachment"><video src="${mUrl}" controls preload="metadata" style="max-height:350px; border-radius:12px;"></video></div>`;
+                mediaMarkup = `<div class="media-attachment" style="position:relative; border-radius:12px; overflow:hidden;">
+                    <video src="${mUrl}" controls preload="metadata" style="max-height:350px; border-radius:12px; width:100%;"></video>
+                    <div style="position:absolute; top:10px; right:10px; z-index:10;">${dlBtn}</div>
+                </div>`;
             } else if (mType === 'audio') {
-                mediaMarkup = `<div class="media-attachment" style="padding:15px; background: rgba(0,242,254,0.05); border-radius:40px; border:1px solid var(--glass-border); display:flex; align-items:center;"><audio src="${mUrl}" controls style="width:240px; height:32px;"></audio></div>`;
+                mediaMarkup = `<div class="media-attachment" style="padding:15px; background: rgba(0,242,254,0.05); border-radius:40px; border:1px solid var(--glass-border); display:flex; align-items:center;">
+                    <audio src="${mUrl}" controls style="width:240px; height:32px;"></audio>
+                    <a href="${mUrl}" download style="color:var(--primary-cyan); margin-left:15px; font-size:1.1rem;"><i class="fas fa-download"></i></a>
+                </div>`;
             } else {
-                mediaMarkup = `<div class="media-attachment" style="padding:18px; background:rgba(255,255,255,0.03); cursor:pointer; border-radius:16px; border:1px solid var(--glass-border);" onclick="window.open('${mUrl}')">
-                    <i class="fas fa-file-invoice" style="color:var(--primary-cyan); font-size:1.4rem;"></i> <span style="font-size:0.75rem; margin-left:12px; color:var(--text-muted)">Nexus Core Transfer</span>
+                mediaMarkup = `<div class="media-attachment" style="position:relative; padding:18px; background:rgba(255,255,255,0.03); border-radius:16px; border:1px solid var(--glass-border);">
+                    <div style="display:flex; align-items:center;">
+                        <i class="fas fa-file-invoice" style="color:var(--primary-cyan); font-size:1.4rem;"></i>
+                        <span style="font-size:0.75rem; margin-left:12px; color:var(--text-muted)">Nexus Core Transfer</span>
+                        <a href="${mUrl}" download style="margin-left:auto; color:var(--primary-cyan);"><i class="fas fa-file-download"></i></a>
+                    </div>
                 </div>`;
             }
         }
