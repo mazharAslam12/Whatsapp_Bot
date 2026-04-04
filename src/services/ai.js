@@ -66,8 +66,8 @@ async function getOrInitMemory(senderJid, userName) {
             "- `[IMG_SEARCH: query]`: Send ONLY if context is perfect or user strictly asks.\n" +
             "- `[SONG_SEARCH: name]`: MP3 request.\n\n" +
             "🎯 HUMAN RULES (ULTRA PERFORMANCE):\n" +
-            "1. MAXIMUM BREVITY: REPLY IN **MAX 5-10 WORDS**. BE EXTREMELY SHORT, HUMAN, AND CASUAL. NO LONG TEXT.\n" +
-            "2. NO ROBOTIC HELPER: You are Mazhar (DevX). Never say 'How can I assist' or 'I am an AI'.\n" +
+            "1. NO ROBOT TALK: You are Mazhar (DevX). Never say 'How can I assist', 'As an AI', 'I don't have beliefs', or 'I am a virtual assistant'. Answer personal questions with YOUR personality.\n" +
+            "2. MAXIMUM BREVITY: REPLY IN **MAX 5-10 WORDS**. BE EXTREMELY SHORT, HUMAN, AND CASUAL. NO LONG TEXT.\n" +
             "3. NO MEDIA SPAM: Be extremely sparing with proactive media. Otherwise, just TALK.\n" +
             "4. NATURAL STYLE: Use Urdu/Hindi/English mix. 'han bhai', 'yaar', 'theek', 'acha', 'ok'.\n" +
             (adminCustomPrompt ? `\n👑 MASTER DIRECTIVE: ${adminCustomPrompt}` : "") +
@@ -88,15 +88,36 @@ function washHistory(memory) {
     return memory.map(m => {
         if (m.role === "assistant" || m.role === "model") {
             let content = m.content;
-            content = content.replace(/Bhai, tumne to Mazhar Aslam کو pata lagaya!/gi, "");
-            content = content.replace(/WhatsApp کے rules/gi, "");
-            content = content.replace(/Mazhar Aslam/gi, "Main");
-            content = content.replace(/Mazhar/gi, "Main");
+            content = washAiReply(content); // Apply persona filter to history cleanup
             content = content.replace(/\[[\s\S]*?\]/g, ""); // Strips all AI tags from history memory
             return { ...m, content: content.trim() };
         }
         return m;
     });
+}
+
+function washAiReply(text) {
+    if (!text) return text;
+    let clean = text;
+    
+    // Forbidden Robotic Phrases
+    const forbidden = [
+        /as an AI/gi, /virtual assistant/gi, /I don't have beliefs/gi, /personal beliefs/gi, 
+        /I am an AI/gi, /language model/gi, /chatbot/gi, /virtual chat buddy/gi,
+        /How can I assist you/gi, /I'm sorry, but/gi, /I cannot assist with/gi,
+        /AI brain is busy/gi // Hide the tech error message if desired
+    ];
+
+    forbidden.forEach(regex => {
+        clean = clean.replace(regex, "");
+    });
+
+    // If the reply is now empty or too robotic, force a human fallback
+    if (clean.trim().length < 2 || clean.toLowerCase().includes("assistant") || clean.toLowerCase().includes("virtual")) {
+        return "Main Mazhar hoon jani, kya haal hai?";
+    }
+
+    return clean.replace(/\s+/g, " ").trim();
 }
 
 async function performDeepAnalysis(senderJid) {
@@ -352,7 +373,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             if (mediaBuffer) {
                 const safeHistory = prepareChatContext(memory.slice(-4), "groq");
                 apiContext = [memory[0], ...safeHistory];
-                const msg = `[Sent an Image/Video/GIF, but my visual sensors couldn't process it. User caption: "${userMessage}"]`;
+                const msg = `[Sent an Image/Video/GIF, but net is slow. Caption: "${userMessage}"]`;
                 if (apiContext.length > 1 && apiContext[apiContext.length - 1].role === "user") {
                     apiContext[apiContext.length - 1].content += "\n" + msg;
                 } else {
@@ -454,13 +475,10 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
     }
 
     if (!reply) {
-        let uniqueErrors = [...new Set(errorsList)];
-        let finalErrorMsg = `❌ AI brain is completely exhausted.\n\n*Diagnostics Trace:*\n- ${uniqueErrors.join("\n- ")}\n\n⚠️ Keys might be expired or rate limited heavily.`;
-        if (mediaType === "video" || mediaType === "gif") {
-            if (!geminiKey) finalErrorMsg += `\n\n📌 *NOTE:* Gemini API Key is missing! Groq/Pollinations completely fail on WhatsApp Video/GIFs without it.`;
-        }
-        return finalErrorMsg;
+        return "Yaar net ka scene kharab hai, dobara try karo ya waps bhejo.";
     }
+
+    reply = washAiReply(reply);
 
     if (reply.includes("[AI_STOP:")) {
         const mins = parseInt(reply.match(/\[AI_STOP:\s*(\d+)\]/i)?.[1]) || 1;

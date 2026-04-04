@@ -225,6 +225,8 @@ async function handleMessage(sock, msg) {
             if (transcript) {
                 console.log(`🎤 [VOICE] Transcribed: "${transcript}"`);
                 prompt = transcript;
+            } else {
+                prompt = "[Yaar voice note sahi se samajh nahi aai, net slow ho sakta hai. Reply in persona.]";
             }
         }
         // We only trigger AI if it's a private message or the bot is mentioned/replied to
