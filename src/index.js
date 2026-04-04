@@ -1,7 +1,10 @@
 require("dotenv").config();
+const path = require("path");
+const fs = require("fs").promises;
 const { connectToWhatsApp } = require("./lib/whatsapp");
 const { handleMessage, handlePresence, safeSendMessage } = require("./handlers/message");
 const { startWebServer } = require("./services/web");
+const { coerceOutboundJid } = require("./services/ai");
 const events = require("./lib/events");
 
 startWebServer();
@@ -20,19 +23,34 @@ events.on("send_whatsapp", async (data) => {
     console.log(`📤 [SYSTEM] Dashboard transmit request for ${data.jid}`);
     if (sock) {
         try {
-            if (!data.jid || !data.text) throw new Error("Missing JID or Text in dashboard payload");
-            
-            // 🛡️ JID SANITIZER: Ensure correct format for Baileys
-            let targetJid = data.jid.trim();
-            if (!targetJid.includes("@")) {
-                targetJid = targetJid.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
-            } else if (targetJid.endsWith("@c.us")) {
-                targetJid = targetJid.replace("@c.us", "@s.whatsapp.net");
-            }
+            if (!data.jid) throw new Error("Missing JID in dashboard payload");
+            const targetJid = coerceOutboundJid(data.jid);
+            const hasImage = Buffer.isBuffer(data.imageBuffer) && data.imageBuffer.length > 0;
+            const text = typeof data.text === "string" ? data.text.trim() : "";
+            if (!hasImage && !text) throw new Error("Need text and/or image for dashboard send");
 
-            await safeSendMessage(sock, targetJid, { text: data.text }, { skipAiReplyEvent: true });
-            events.emit("admin_outbound", { jid: targetJid, text: data.text });
-            console.log(`✅ [DASHBOARD] Message delivered to ${targetJid}`);
+            if (hasImage) {
+                const fname = `admin_out_${Date.now()}.jpg`;
+                const userFiles = path.join(process.cwd(), "user_files");
+                await fs.mkdir(userFiles, { recursive: true });
+                await fs.writeFile(path.join(userFiles, fname), data.imageBuffer);
+                const caption = typeof data.caption === "string" ? data.caption : "";
+                await safeSendMessage(
+                    sock,
+                    targetJid,
+                    { image: data.imageBuffer, caption },
+                    { skipAiReplyEvent: true }
+                );
+                events.emit("admin_outbound", {
+                    jid: targetJid,
+                    text: caption || "[Image]",
+                    media: { type: "image", url: `/media/${fname}` }
+                });
+            } else {
+                await safeSendMessage(sock, targetJid, { text }, { skipAiReplyEvent: true });
+                events.emit("admin_outbound", { jid: targetJid, text });
+            }
+            console.log(`✅ [DASHBOARD] Delivered to ${targetJid}`);
         } catch (err) {
             console.error("❌ [DASHBOARD] Transmit failed:", err.message);
         }

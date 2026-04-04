@@ -19,11 +19,82 @@ function normalizeUserJid(raw) {
     if (!raw) return raw;
     const s = String(raw).trim();
     if (s.endsWith("@g.us")) return s;
+    if (s.endsWith("@lid")) return s;
     const at = s.indexOf("@");
     const head = at >= 0 ? s.slice(0, at) : s;
     const digits = head.replace(/\D/g, "");
     if (!digits) return s;
     return `${digits}@s.whatsapp.net`;
+}
+
+/** JID for WhatsApp send / dashboard: keep @lid and full JIDs; fix @c.us; digits-only → @s.whatsapp.net */
+function coerceOutboundJid(raw) {
+    if (!raw) return raw;
+    const s = String(raw).trim();
+    if (!s) return s;
+    if (s.endsWith("@g.us")) return s;
+    if (s.endsWith("@lid")) return s;
+    if (s.includes("@")) {
+        if (s.endsWith("@c.us")) return s.replace(/@c\.us$/i, "@s.whatsapp.net");
+        return s;
+    }
+    const digits = s.replace(/\D/g, "");
+    return digits ? `${digits}@s.whatsapp.net` : s;
+}
+
+function historyPathForJid(jid) {
+    if (!jid) return null;
+    return path.join(HISTORY_DIR, `history_${jid.replace(/[:@.]/g, "_")}.json`);
+}
+
+/** Reverse history_*.json filename → real WhatsApp JID (Baileys). */
+function decodeHistoryBasename(base) {
+    if (!base || typeof base !== "string") return null;
+    if (base.endsWith("_s_whatsapp_net")) {
+        const local = base.slice(0, -"_s_whatsapp_net".length);
+        return `${local.replace(/_/g, "")}@s.whatsapp.net`;
+    }
+    if (base.endsWith("_c_us")) {
+        const local = base.slice(0, -"_c_us".length);
+        return `${local.replace(/_/g, "")}@c.us`;
+    }
+    if (base.endsWith("_g_us")) {
+        const local = base.slice(0, -"_g_us".length);
+        return `${local.replace(/_/g, "")}@g.us`;
+    }
+    if (base.endsWith("_lid")) {
+        const local = base.slice(0, -"_lid".length);
+        return `${local.replace(/_/g, "")}@lid`;
+    }
+    return null;
+}
+
+/** First path that exists on disk, else primary path for create. */
+async function resolveExistingHistoryPath(jid) {
+    const j = coerceOutboundJid(jid);
+    const candidates = [];
+    const add = (x) => {
+        if (x && !candidates.includes(x)) candidates.push(x);
+    };
+    add(historyPathForJid(j));
+    if (!j.endsWith("@g.us")) {
+        const n = normalizeUserJid(j);
+        if (n && n !== j) add(historyPathForJid(n));
+        const digits = (j.split("@")[0] || "").replace(/\D/g, "");
+        if (digits) {
+            add(path.join(HISTORY_DIR, `history_${digits}_c_us.json`));
+            add(path.join(HISTORY_DIR, `history_${digits}_s_whatsapp_net.json`));
+        }
+    }
+    for (const p of candidates) {
+        try {
+            await fs.access(p);
+            return p;
+        } catch (e) {
+            /* try next */
+        }
+    }
+    return historyPathForJid(j) || candidates[0];
 }
 
 function historyBasenameToJid(base) {
@@ -44,11 +115,18 @@ function buildLanguageHint(text) {
     if (t.length < 2) return "";
     const hasArabicScript = /[\u0600-\u06FF\u0750-\u077F]/.test(t);
     const hasLatin = /[a-zA-Z]{2,}/.test(t);
+    const romanUrduHints =
+        /\b(kya|kyun|kab|kahan|kaise|hai|ho|hain|nahi|nahin|main|mein|tum|tera|teri|mera|meri|acha|theek|thik|yaar|bhai|behen|matlab|kuch|bohot|bht|sirf|bas|abhi|phir|wali|wala)\b/i.test(
+            t
+        );
     if (hasArabicScript && !hasLatin) {
         return "[LANGUAGE: User wrote in Urdu/Arabic script — reply in that script naturally.]\n";
     }
+    if (hasLatin && !hasArabicScript && romanUrduHints) {
+        return "[LANGUAGE: User wrote **Roman Urdu** — reply in Roman Urdu (same casual style), not formal textbook English.\n";
+    }
     if (hasLatin && !hasArabicScript) {
-        return "[LANGUAGE: User wrote in English / Roman — reply in English, same casual Mazhar energy.]\n";
+        return "[LANGUAGE: User wrote in English — reply in **high-level native English** (natural, fluent, can use casual native shortcuts like ngl/tbh/fr/lowkey when tone fits). Not stiff textbook English.]\n";
     }
     if (hasLatin && hasArabicScript) {
         return "[LANGUAGE: User mixed Roman + Urdu/Arabic script — mirror their mix.]\n";
@@ -81,7 +159,7 @@ async function getOrInitMemory(senderJid, userName) {
     const profile = await getProfile(senderJid, userName);
     const displayName =
         profile.name && String(profile.name).trim() && profile.name !== "User" ? profile.name : userName || "User";
-    const historyPath = path.join(HISTORY_DIR, `history_${senderJid.replace(/[:@.]/g, "_")}.json`);
+    const historyPath = await resolveExistingHistoryPath(senderJid);
     let memory = [];
 
     try {
@@ -94,7 +172,7 @@ async function getOrInitMemory(senderJid, userName) {
         }
     } catch (err) { }
 
-    const promptOverrideKey = senderJid.endsWith("@g.us") ? senderJid : normalizeUserJid(senderJid);
+    const promptOverride = getUserPromptOverride(senderJid);
 
     const systemPrompt = {
         role: "system",
@@ -123,7 +201,12 @@ async function getOrInitMemory(senderJid, userName) {
             "- `[GIF: category]` — categories include: smile, happy, hug, dance, wave, cry, love, angry, anime, meme, funny, hype, motivation, pat, wink, bully, cartoon, cat, dog, naruto, kawaii… (one word/theme).\n" +
             "- `[IMG_SEARCH: query]` when they want a picture or it fits the convo.\n" +
             "- `[SONG_SEARCH: name]` — bot sends the track as a **WhatsApp voice note (PTT)** so they can tap and listen like a normal voice message.\n\n" +
-            "🌐 LANGUAGE: Always **match the user's language** in their latest message — English in English, Urdu script in Urdu script, Roman Urdu if they use Roman Urdu. Never force the wrong language.\n" +
+            "🌐 LANGUAGE (strict mirror):\n" +
+            "- **English messages** → reply in **fluent native-level English**: natural rhythm, idioms, and **casual shortcuts** where they fit the vibe (e.g. ngl, tbh, fr, lowkey, kinda, gonna, wanna) — still clear and sharp, not textbook.\n" +
+            "- **Urdu script / Roman Urdu** → match them in the **same** style; don't switch to heavy English if they're in Urdu.\n" +
+            "- **Code-switching** → mirror their mix naturally.\n\n" +
+            "😊 EMOJI: Use **only when it adds tone** (1–2 max per message usually). Skip emoji if plain text hits harder.\n" +
+            "🎭 VIBE & FEELING: Read their **latest message mood** (hyped, sad, angry, chill, formal) and **meet them there**. Use CONTEXT + history to infer **relationship** (friend, client, family energy) and what they need right now — real talk, not generic pep.\n" +
             "👔 PROFESSIONAL MIRROR: If the CONTEXT says they write **formally / corporate** (Dear, Regards, meeting, proposal, invoice, FYI), answer **polite and professional** in the **same language** until they go casual again.\n" +
             "🚫 Never say you're an AI, model, assistant, or 'how can I help'. No robotic filler.\n\n" +
             "👑 WHO YOU'RE TALKING TO:\n" +
@@ -137,7 +220,7 @@ async function getOrInitMemory(senderJid, userName) {
             (await performDeepAnalysis(senderJid, displayName)) +
             "\n\n" +
             (adminCustomPrompt ? `👑 MASTER DIRECTIVE: ${adminCustomPrompt}\n` : "") +
-            (userSpecificPrompts.has(promptOverrideKey) ? `🔥 TARGET OVERRIDE: ${userSpecificPrompts.get(promptOverrideKey)}\n` : "")
+            (promptOverride ? `🔥 TARGET OVERRIDE: ${promptOverride}\n` : "")
     };
 
     if (memory.length > 0 && memory[0].role === "system") {
@@ -237,8 +320,8 @@ function scorePersonaReply(text) {
 }
 
 async function performDeepAnalysis(senderJid, displayName = "User") {
-    const historyPath = path.join(HISTORY_DIR, `history_${senderJid.replace(/[:@.]/g, "_")}.json`);
     try {
+        const historyPath = await resolveExistingHistoryPath(senderJid);
         const data = await fs.readFile(historyPath, "utf8");
         const history = JSON.parse(data).filter((m) => m.role !== "system");
         const recent = history.slice(-80);
@@ -299,6 +382,14 @@ async function performDeepAnalysis(senderJid, displayName = "User") {
             analysis += `**Don't repeat** same opening as: ${lastAsst.join(" · ")}. `;
         }
 
+        const userTurns = recent.filter((m) => m.role === "user").length;
+        if (userTurns >= 8) {
+            analysis +=
+                "**Relationship signal:** long thread — talk like someone who **knows** them from context, not a cold intro. ";
+        } else if (userTurns >= 2) {
+            analysis += "**Relationship signal:** returning user — keep continuity with earlier topics. ";
+        }
+
         return analysis.trim() || "Fresh chat — stay warm and human.";
     } catch (err) {
         return "First talk — go easy, learn their vibe.";
@@ -306,8 +397,8 @@ async function performDeepAnalysis(senderJid, displayName = "User") {
 }
 
 async function saveMemory(senderJid, memory) {
-    const historyPath = path.join(HISTORY_DIR, `history_${senderJid.replace(/[:@.]/g, "_")}.json`);
     try {
+        const historyPath = await resolveExistingHistoryPath(senderJid);
         await fs.mkdir(HISTORY_DIR, { recursive: true });
         await fs.writeFile(historyPath, JSON.stringify(memory, null, 2));
     } catch (err) { console.error("❌ [AI] Error saving history:", err.message); }
@@ -830,9 +921,9 @@ function userPauseCommand(jid, lower) {
 }
 
 function toggleUserAi(jid, status) {
-    const n = normalizeUserJid(jid);
-    if (status === false) aiDisabledUsers.add(n);
-    else aiDisabledUsers.delete(n);
+    const keys = new Set([coerceOutboundJid(jid), normalizeUserJid(jid), jid].filter(Boolean));
+    if (status === false) keys.forEach((k) => aiDisabledUsers.add(k));
+    else keys.forEach((k) => aiDisabledUsers.delete(k));
     
     // Persist to disk
     (async () => {
@@ -846,8 +937,9 @@ function toggleUserAi(jid, status) {
 
 function isAiEnabled(jid) {
     if (!jid) return true;
+    const c = coerceOutboundJid(jid);
     const n = normalizeUserJid(jid);
-    return !aiDisabledUsers.has(n) && !aiDisabledUsers.has(jid);
+    return !aiDisabledUsers.has(c) && !aiDisabledUsers.has(n) && !aiDisabledUsers.has(jid);
 }
 
 async function getAllContacts() {
@@ -855,7 +947,8 @@ async function getAllContacts() {
         const files = await fs.readdir(HISTORY_DIR);
         const contactPromises = files.filter(f => f.startsWith("history_") && f.endsWith(".json")).map(async f => {
             const safeJidName = f.replace("history_", "").replace(/\.json$/, "");
-            let jid = historyBasenameToJid(safeJidName);
+            let jid = decodeHistoryBasename(safeJidName);
+            if (!jid) jid = historyBasenameToJid(safeJidName);
             if (!jid) {
                 const digits = safeJidName.replace(/\D/g, "");
                 jid = digits ? `${digits}@s.whatsapp.net` : null;
@@ -874,7 +967,11 @@ async function getAllContacts() {
             } catch(e) {}
 
             const now = Date.now();
-            const pauseUntil = stopAiStatus.get(jid) || 0;
+            const pauseUntil =
+                stopAiStatus.get(jid) ||
+                stopAiStatus.get(normalizeUserJid(jid)) ||
+                stopAiStatus.get(coerceOutboundJid(jid)) ||
+                0;
             const isPaused = now < pauseUntil;
             const phone = jid.split("@")[0];
 
@@ -884,7 +981,7 @@ async function getAllContacts() {
                 file: f,
                 name,
                 profilePic,
-                overrideActive: userSpecificPrompts.has(jid),
+                overrideActive: Boolean(getUserPromptOverride(jid)),
                 aiEnabled: isAiEnabled(jid),
                 isPaused: isPaused,
                 pauseRemaining: isPaused ? Math.ceil((pauseUntil - now) / 60000) : 0
@@ -896,21 +993,21 @@ async function getAllContacts() {
 }
 
 async function getFullHistory(jid) {
-    const n = jid.endsWith("@g.us") ? jid : normalizeUserJid(jid);
-    const historyPath = path.join(HISTORY_DIR, `history_${n.replace(/[:@.]/g, "_")}.json`);
     try {
+        const historyPath = await resolveExistingHistoryPath(jid);
         return JSON.parse(await fs.readFile(historyPath, "utf8"));
-    } catch (e) { return []; }
+    } catch (e) {
+        return [];
+    }
 }
 
 /**
  * Paginated non-system messages for dashboard (newest window, or older pages via beforeTs).
  */
 async function getFullHistoryWindow(jid, { limit = 500, beforeTs = null } = {}) {
-    const n = jid.endsWith("@g.us") ? jid : normalizeUserJid(jid);
-    const historyPath = path.join(HISTORY_DIR, `history_${n.replace(/[:@.]/g, "_")}.json`);
     let arr = [];
     try {
+        const historyPath = await resolveExistingHistoryPath(jid);
         arr = JSON.parse(await fs.readFile(historyPath, "utf8"));
     } catch (e) {
         return { history: [], totalMessages: 0, hasOlder: false };
@@ -940,14 +1037,23 @@ function setAdminPrompt(prompt) {
 }
 
 function setUserSpecificPrompt(jid, prompt) {
-    const n = normalizeUserJid(jid);
-    if (!prompt) userSpecificPrompts.delete(n);
-    else userSpecificPrompts.set(n, prompt);
+    const keys = new Set([coerceOutboundJid(jid), normalizeUserJid(jid), jid].filter(Boolean));
+    if (!prompt) keys.forEach((k) => userSpecificPrompts.delete(k));
+    else keys.forEach((k) => userSpecificPrompts.set(k, prompt));
+}
+
+function getUserPromptOverride(jid) {
+    if (!jid) return null;
+    const keys = [jid, coerceOutboundJid(jid), normalizeUserJid(jid)].filter(Boolean);
+    for (const k of keys) {
+        if (userSpecificPrompts.has(k)) return userSpecificPrompts.get(k);
+    }
+    return null;
 }
 
 async function addAdminMessageToMemory(jid, text) {
     try {
-        const n = normalizeUserJid(jid);
+        const n = coerceOutboundJid(jid);
         const memory = await getOrInitMemory(n, "User");
         memory.push({ role: "assistant", content: `👑 MASTER BYPASS: ${text}`, timestamp: Date.now() });
         await saveMemory(n, memory);
@@ -961,6 +1067,7 @@ module.exports = {
     pauseAiTemporarily,
     userPauseCommand,
     normalizeUserJid,
+    coerceOutboundJid,
     buildLanguageHint,
     setAdminPrompt,
     toggleUserAi,

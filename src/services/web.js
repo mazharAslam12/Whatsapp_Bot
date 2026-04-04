@@ -12,7 +12,7 @@ const {
     addAdminMessageToMemory,
     setUserSpecificPrompt,
     pauseAiTemporarily,
-    normalizeUserJid
+    coerceOutboundJid
 } = require("./ai");
 
 
@@ -93,23 +93,44 @@ function startWebServer() {
         });
 
         socket.on("admin_reply", async (data) => {
-            if (!data?.jid || !data?.text) return;
-            const jid = normalizeUserJid(data.jid);
-            console.log(`📩 [DASHBOARD] Bypass → ${jid}`);
+            if (!data?.jid) return;
+            const jid = data.jid.endsWith("@g.us") ? data.jid.trim() : coerceOutboundJid(data.jid);
+            const text = typeof data.text === "string" ? data.text.trim() : "";
+            const rawB64 = data.imageBase64;
+            const hasImage = typeof rawB64 === "string" && rawB64.length > 80;
+
+            if (!text && !hasImage) return;
+
+            console.log(`📩 [DASHBOARD] Bypass → ${jid}${hasImage ? " + image" : ""}`);
             pauseAiTemporarily(jid, 180000);
-            await addAdminMessageToMemory(jid, data.text);
-            events.emit("send_whatsapp", { jid, text: data.text });
+
+            if (hasImage) {
+                let buf;
+                try {
+                    const b64 = rawB64.replace(/^data:image\/\w+;base64,/, "").replace(/\s/g, "");
+                    buf = Buffer.from(b64, "base64");
+                } catch (e) {
+                    console.error("❌ [DASHBOARD] Bad image payload");
+                    return;
+                }
+                if (!buf || !buf.length) return;
+                await addAdminMessageToMemory(jid, text || "[Image]");
+                events.emit("send_whatsapp", { jid, imageBuffer: buf, caption: text, text: text || "[Image]" });
+            } else {
+                await addAdminMessageToMemory(jid, text);
+                events.emit("send_whatsapp", { jid, text });
+            }
         });
 
         socket.on("override_user_ai", (data) => {
-            const jid = normalizeUserJid(data.jid);
+            const jid = data.jid && data.jid.endsWith("@g.us") ? data.jid.trim() : coerceOutboundJid(data.jid);
             console.log(`👑 [MASTER OVERRIDE] Target: ${jid}. Rule: ${data.prompt}`);
             setUserSpecificPrompt(jid, data.prompt || "");
             socket.emit("get_contacts");
         });
 
         socket.on("toggle_ai", (data) => {
-            const jid = normalizeUserJid(data.jid);
+            const jid = data.jid && data.jid.endsWith("@g.us") ? data.jid.trim() : coerceOutboundJid(data.jid);
             toggleUserAi(jid, data.status);
             socket.emit("get_contacts");
         });
@@ -121,7 +142,7 @@ function startWebServer() {
 
         socket.on("load_chat", async (data) => {
             if (!data?.jid) return;
-            const jid = data.jid.endsWith("@g.us") ? data.jid : normalizeUserJid(data.jid);
+            const jid = data.jid.endsWith("@g.us") ? data.jid.trim() : coerceOutboundJid(data.jid);
             const limit = Math.min(Math.max(parseInt(data.limit, 10) || 500, 20), 2000);
             const beforeRaw = data.beforeTs;
             const beforeTs =
@@ -141,7 +162,7 @@ function startWebServer() {
 
         socket.on("export_chat_json", async (data) => {
             if (!data?.jid) return;
-            const jid = data.jid.endsWith("@g.us") ? data.jid : normalizeUserJid(data.jid);
+            const jid = data.jid.endsWith("@g.us") ? data.jid.trim() : coerceOutboundJid(data.jid);
             const raw = await getFullHistory(jid);
             socket.emit("export_chat_json_ready", { jid, data: raw });
         });
@@ -173,6 +194,7 @@ function startWebServer() {
             role: "admin",
             jid: data.jid,
             text: data.text,
+            media: data.media,
             senderName: "Admin"
         })
     );

@@ -786,7 +786,14 @@
             </div>
 
             <div class="input-console">
-                <textarea id="chat-input" class="main-input" rows="3" placeholder="✉️ Admin bypass — sends on WhatsApp as your message. AI pauses ~3 min for this chat so you can talk first."></textarea>
+                <div style="display:flex; flex-direction:column; flex:1; gap:10px; min-width:0">
+                    <textarea id="chat-input" class="main-input" rows="3" placeholder="✉️ Admin bypass — delivers on WhatsApp (text and/or image). AI pauses ~3 min."></textarea>
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+                        <input type="file" id="admin-image-input" accept="image/*" style="display:none" />
+                        <button type="button" id="admin-pick-image" class="btn btn-ghost" style="padding:10px 16px; font-size:0.68rem"><i class="fas fa-image"></i> Attach image</button>
+                        <span id="admin-image-label" style="font-size:0.68rem; color:var(--text-muted); max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap"></span>
+                    </div>
+                </div>
                 <button type="button" id="send-trigger" class="btn btn-primary" style="align-self:flex-end"><i class="fas fa-bolt"></i> SEND</button>
             </div>
         </main>
@@ -811,6 +818,24 @@
     const contactList = document.getElementById('contacts-container');
     const mainInput = document.getElementById('chat-input');
     const sendBtn = document.getElementById('send-trigger');
+    const adminImageInput = document.getElementById('admin-image-input');
+    const adminPickImage = document.getElementById('admin-pick-image');
+    const adminImageLabel = document.getElementById('admin-image-label');
+    let pendingAdminImageBase64 = null;
+
+    if (adminPickImage && adminImageInput) {
+        adminPickImage.addEventListener('click', () => adminImageInput.click());
+        adminImageInput.addEventListener('change', () => {
+            const f = adminImageInput.files && adminImageInput.files[0];
+            if (!f || !f.type.startsWith('image/')) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                pendingAdminImageBase64 = reader.result;
+                if (adminImageLabel) adminImageLabel.textContent = f.name;
+            };
+            reader.readAsDataURL(f);
+        });
+    }
     const qrLock = document.getElementById('qr-lock');
     const sidebar = document.getElementById('mainSidebar');
     const mobileToggle = document.getElementById('mobileMenuToggle');
@@ -1036,6 +1061,10 @@
         chatTotalMessages = 0;
         updateChatToolbar();
 
+        pendingAdminImageBase64 = null;
+        if (adminImageInput) adminImageInput.value = '';
+        if (adminImageLabel) adminImageLabel.textContent = '';
+
         mainInput.placeholder = `⍟ Bypass to ${jid.split('@')[0]}...`;
         renderContacts();
         socket.emit('load_chat', { jid, limit: 500 });
@@ -1110,7 +1139,8 @@
         if(data.jid === currentJid) {
             if (data.profilePic) document.getElementById('active-user-pic').src = data.profilePic;
             const bubble = data.role === 'whatsapp' ? 'whatsapp' : (data.role === 'admin' ? 'admin' : 'ai');
-            appendBubble(bubble, data.text, Date.now(), data.media);
+            const line = data.role === 'admin' && data.text && !/^👑/.test(data.text) ? ('👑 ' + data.text) : (data.text || '');
+            appendBubble(bubble, line, Date.now(), data.media);
             feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' });
         }
     });
@@ -1172,13 +1202,27 @@
 
     sendBtn.onclick = () => {
         const text = (mainInput.value || '').trim();
-        if(!text || !currentJid) return;
-        
-        appendBubble('admin', '👑 ' + text, Date.now());
-        
-        socket.emit('admin_reply', { jid: currentJid, text });
+        if (!currentJid || (!text && !pendingAdminImageBase64)) return;
+
+        const payload = { jid: currentJid, text: text || '' };
+        if (pendingAdminImageBase64) payload.imageBase64 = pendingAdminImageBase64;
+
+        const previewText = pendingAdminImageBase64
+            ? ('👑 ' + (text || '[Image]'))
+            : ('👑 ' + text);
+        appendBubble(
+            'admin',
+            previewText,
+            Date.now(),
+            pendingAdminImageBase64 ? { type: 'image', url: pendingAdminImageBase64 } : null
+        );
+
+        socket.emit('admin_reply', payload);
         mainInput.value = '';
         mainInput.style.height = '';
+        pendingAdminImageBase64 = null;
+        if (adminImageInput) adminImageInput.value = '';
+        if (adminImageLabel) adminImageLabel.textContent = '';
     };
 
     mainInput.addEventListener('keydown', (e) => {
