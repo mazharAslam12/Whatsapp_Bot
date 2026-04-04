@@ -62,13 +62,13 @@ async function getOrInitMemory(senderJid, userName) {
             "🎯 CORE TRIGGERS (SELECTIVE JOINING):\n" +
             "- `[WEB_SEARCH: query]`: Find answers online if you don't know.\n" +
             "- `[REACTION: emoji]`: React to user's message (e.g. [REACTION: 🔥]).\n" +
-            "- `[GIF: category]`: Be proactive! Send for happy/funny/greeting moments (smile, wave, happy, dance, laugh, hug, pat, wink, yeet).\n" +
-            "- `[IMG_SEARCH: query]`: Send if context is perfect or user asks. Be smart.\n" +
+            "- `[GIF: category]`: ONLY send for extremely funny or hyped moments when the user explicitly begs for a reaction. Do NOT send randomly.\n" +
+            "- `[IMG_SEARCH: query]`: Send ONLY if context is perfect or user strictly asks.\n" +
             "- `[SONG_SEARCH: name]`: MP3 request.\n\n" +
             "🎯 HUMAN RULES (ULTRA PERFORMANCE):\n" +
             "1. MAXIMUM BREVITY: REPLY IN **MAX 5-10 WORDS**. BE EXTREMELY SHORT, HUMAN, AND CASUAL. NO LONG TEXT.\n" +
             "2. NO ROBOTIC HELPER: You are Mazhar (DevX). Never say 'How can I assist' or 'I am an AI'.\n" +
-            "3. NO MEDIA SPAM: Be proactive with media only when it fits perfectly (funny, cute, nice). Otherwise, just TALK.\n" +
+            "3. NO MEDIA SPAM: Be extremely sparing with proactive media. Otherwise, just TALK.\n" +
             "4. NATURAL STYLE: Use Urdu/Hindi/English mix. 'han bhai', 'yaar', 'theek', 'acha', 'ok'.\n" +
             (adminCustomPrompt ? `\n👑 MASTER DIRECTIVE: ${adminCustomPrompt}` : "") +
             (userSpecificPrompts.has(senderJid) ? `\n🔥 TARGET OVERRIDE: ${userSpecificPrompts.get(senderJid)}` : "")
@@ -166,8 +166,8 @@ async function transcribeVoice(buffer) {
 async function extractFrame(buffer, mediaType) {
     if (mediaType === "video" || mediaType === "gif") return null; // sharp can't process mp4 without native deps/ffmpeg easily
     try {
-        // Extracts the first frame of a GIF or video for Groq Vision compatibility
-        return await sharp(buffer, { animated: true }).toFormat("jpeg").toBuffer();
+        // Resize to tiny resolution to bypass Groq Base64 size limits
+        return await sharp(buffer, { animated: true }).resize(512, 512, { fit: 'inside' }).toFormat("jpeg", { quality: 50 }).toBuffer();
     } catch (e) {
         return buffer; // Fallback to original
     }
@@ -304,7 +304,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             if (frameBuffer) {
                 const base64Media = frameBuffer.toString("base64");
                 const apiContext = [
-                    memory[0], 
+                    { role: "system", content: "Analyze the attached image and describe it briefly based on internal context." }, 
                     {
                         role: "user",
                         content: [
@@ -342,7 +342,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             
             let apiContext;
             if (mediaBuffer) {
-                const safeHistory = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "groq");
+                const safeHistory = prepareChatContext(memory.slice(-4), "groq");
                 apiContext = [memory[0], ...safeHistory];
                 const msg = `[Sent an Image/Video/GIF, but my visual sensors couldn't process it. User caption: "${userMessage}"]`;
                 if (apiContext.length > 1 && apiContext[apiContext.length - 1].role === "user") {
@@ -351,21 +351,18 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                     apiContext.push({ role: "user", content: msg });
                 }
             } else {
-                const history = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "groq");
+                const history = prepareChatContext(memory.slice(-4), "groq");
                 apiContext = [memory[0], ...history];
                 if (apiContext.length > 1 && apiContext[apiContext.length - 1].role === "user") {
-                    apiContext[apiContext.length - 1].content += "\n" + (userMessage || "(Analyze text context above)");
+                    apiContext[apiContext.length - 1].content += "\n" + (userMessage || "Hello");
                 } else {
-                    apiContext.push({ role: "user", content: userMessage || "(Analyze text context above)" });
+                    apiContext.push({ role: "user", content: userMessage || "Hello" });
                 }
             }
 
             const textModels = [
-                "llama-3.3-70b-versatile",
-                "llama3-70b-8192",
-                "llama3-8b-8192",
-                "gemma2-9b-it",
-                "mixtral-8x7b-32768"
+                "llama3-8b-8192", // Quick, reliable Llama3
+                "llama-3.3-70b-versatile"
             ];
 
             let attempts = 0;
@@ -407,7 +404,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
         // 4. POLLINATIONS PUBLIC TEXT FALLBACK (UNLIMITED & FREE)
         if (!reply) {
             console.log("🔍 [ANALYSIS] Engine: Pollinations Free Text Fallback Chain");
-            let apiContext = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "groq");
+            let apiContext = prepareChatContext(memory.slice(-4), "groq");
             
             const firstMsg = { role: "system", content: memory[0].content };
             
@@ -418,7 +415,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                 apiContext.push({ role: "user", content: userMessage || "Hello" });
             }
 
-            const pollModels = ["openai", "mistral", "llama", "searchgpt"];
+            const pollModels = ["openai", "mistral"];
             for (const pModel of pollModels) {
                 try {
                     const url = `https://text.pollinations.ai/`;
@@ -450,7 +447,11 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
 
     if (!reply) {
         let uniqueErrors = [...new Set(errorsList)];
-        return `❌ AI brain is completely exhausted.\n\n*Diagnostics Trace:*\n- ${uniqueErrors.join("\n- ")}\n\n⚠️ Keys might be expired or rate limited heavily.`;
+        let finalErrorMsg = `❌ AI brain is completely exhausted.\n\n*Diagnostics Trace:*\n- ${uniqueErrors.join("\n- ")}\n\n⚠️ Keys might be expired or rate limited heavily.`;
+        if (mediaType === "video" || mediaType === "gif") {
+            if (!geminiKey) finalErrorMsg += `\n\n📌 *NOTE:* Gemini API Key is missing! Groq/Pollinations completely fail on WhatsApp Video/GIFs without it.`;
+        }
+        return finalErrorMsg;
     }
 
     if (reply.includes("[AI_STOP:")) {

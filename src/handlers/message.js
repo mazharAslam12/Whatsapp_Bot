@@ -116,6 +116,17 @@ async function handleMessage(sock, msg) {
             "";
         const text = rawText.trim();
 
+        // Extract Quoted Context
+        let quotedContext = "";
+        const contextInfo = content.extendedTextMessage?.contextInfo;
+        if (contextInfo?.quotedMessage) {
+            const qMsg = contextInfo.quotedMessage;
+            const qText = qMsg.conversation || qMsg.extendedTextMessage?.text || qMsg.imageMessage?.caption || qMsg.videoMessage?.caption || "";
+            if (qText) {
+                quotedContext = `\n[Context: You are replying to an earlier message that says: "${qText}"]`;
+            }
+        }
+
         // --- MEDIA PROCESSING ---
         let mediaBuffer = null;
         let mediaType = null;
@@ -231,7 +242,7 @@ async function handleMessage(sock, msg) {
 
         // Strip mention if it exists
 
-        const finalPrompt = prompt.replace("@" + sock.user.id.split(":")[0], "").trim();
+        const finalPrompt = prompt.replace("@" + sock.user.id.split(":")[0], "").trim() + quotedContext;
         if (!finalPrompt && !mediaBuffer) return;
 
         const aiReply = await mazharAiReply(finalPrompt, jid, pushName, mediaBuffer, mediaData);
