@@ -125,6 +125,11 @@ async function handleMessage(sock, msg) {
         if (mediaTypes.includes(msgType)) {
             try {
                 mediaBuffer = await downloadMediaMessage(msg, "buffer", {}, { logger: { level: "silent" } });
+                if (mediaBuffer) {
+                    console.log(`✅ [SYSTEM] Media Downloaded: ${msgType} (${mediaBuffer.length} bytes)`);
+                } else {
+                    console.warn(`⚠️ [SYSTEM] Media Download FAILED for ${msgType}`);
+                }
                 
                 mediaType = msgType.replace("Message", "");
                 

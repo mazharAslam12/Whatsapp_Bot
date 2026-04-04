@@ -59,16 +59,16 @@ async function getOrInitMemory(senderJid, userName) {
             "- Name: " + profile.name + "\n" +
             "- Relationship: " + profile.relationship + "\n" +
             "- Current Intelligence: " + await performDeepAnalysis(senderJid) + "\n\n" +
-            "🎯 CORE TRIGGERS (SELECTIVE JOINING):\n" +
+            "🎯 CORE TRIGGERS (SELECTIVE ONLY):\n" +
             "- `[WEB_SEARCH: query]`: Find answers online if you don't know.\n" +
             "- `[REACTION: emoji]`: React to user's message (e.g. [REACTION: 🔥]).\n" +
-            "- `[GIF: category]`: ONLY send if the mood is perfect. Whitelist: smile, wave, happy, dance, laugh, hug, wink, pat, bonk, yeet, bully, slap, kill, cringe, cuddle, cry, highfive, handhold, nom, bite, glomp, slap.\n" +
-            "- `[IMG_SEARCH: query]`: ONLY if user asks. DO NOT send images without reason.\n" +
+            "- `[GIF: category]`: ONLY send if the user explicitly asks for media. Max once per 20 messages.\n" +
+            "- `[IMG_SEARCH: query]`: ONLY if user asks. NEVER send images without direct request.\n" +
             "- `[SONG_SEARCH: name]`: MP3 request.\n\n" +
             "🎯 HUMAN RULES (ULTRA PERFORMANCE):\n" +
-            "1. MAXIMUM BREVITY: REPLY IN **MAX 10 WORDS**. BE SUPER SHORT, HUMAN, AND CASUAL. NO LONG TEXT.\n" +
+            "1. MAXIMUM BREVITY: REPLY IN **MAX 5-10 WORDS**. BE EXTREMELY SHORT, HUMAN, AND CASUAL. NO LONG TEXT.\n" +
             "2. NO ROBOTIC HELPER: You are Mazhar (DevX). Never say 'How can I assist' or 'I am an AI'.\n" +
-            "3. NO MEDIA SPAM: Do NOT send [GIF] or [IMG_SEARCH] unless it is asked for or 100% needed.\n" +
+            "3. NO MEDIA SPAM: **NEVER** send [GIF] or [IMG_SEARCH] unless the user explicitly asks for one. Otherwise, JUST TALK or send an emoji.\n" +
             "4. NATURAL STYLE: Use Urdu/Hindi/English mix. 'han bhai', 'yaar', 'theek', 'acha', 'ok'.\n" +
             (adminCustomPrompt ? `\n👑 MASTER DIRECTIVE: ${adminCustomPrompt}` : "") +
             (userSpecificPrompts.has(senderJid) ? `\n🔥 TARGET OVERRIDE: ${userSpecificPrompts.get(senderJid)}` : "")
@@ -86,18 +86,13 @@ async function getOrInitMemory(senderJid, userName) {
 
 function washHistory(memory) {
     return memory.map(m => {
-        if (m.role === "assistant") {
+        if (m.role === "assistant" || m.role === "model") {
             let content = m.content;
             content = content.replace(/Bhai, tumne to Mazhar Aslam کو pata lagaya!/gi, "");
-            content = content.replace(/Bhai, tumne to Mazhar Aslam کو pucha hai!/gi, "");
             content = content.replace(/WhatsApp کے rules/gi, "");
-            content = content.replace(/share nahi kar sakta/gi, "bhej raha hoon");
             content = content.replace(/Mazhar Aslam/gi, "Main");
             content = content.replace(/Mazhar/gi, "Main");
-            content = content.replace(/pata lagaya/gi, "samajh gaya");
-            content = content.replace(/\[IMG_SEARCH:.*?\]/gi, "");
-            content = content.replace(/\[GIF:.*?\]/gi, "");
-            content = content.replace(/\[WEB_SEARCH:.*?\]/gi, "");
+            content = content.replace(/\[[\s\S]*?\]/g, ""); // Strips all AI tags from history memory
             return { ...m, content: content.trim() };
         }
         return m;
@@ -197,9 +192,9 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
     
     if (mediaBuffer) {
         let mimeType = "image/jpeg";
-        if (mediaType === "video") mimeType = "video/mp4";
+        if (mediaType === "video" || mediaType === "gif") mimeType = "video/mp4";
         else if (mediaType === "audio") mimeType = "audio/ogg"; 
-        else if (mediaType === "gif") mimeType = "image/gif";
+        else if (mediaType === "sticker") mimeType = "image/webp";
         
         currentParts.push({ inline_data: { mime_type: mimeType, data: mediaBuffer.toString("base64") } });
     }
@@ -221,14 +216,18 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
             body: JSON.stringify(body)
         });
 
-        if (!res.ok) {
+        if (res.ok) {
+            const data = await res.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+            if (text) {
+                console.log(`✅ [VISION SUCCESS] Engine: Gemini 1.5 Flash. Content Length: ${text.length}`);
+                return text;
+            }
+        } else {
             const err = await res.text();
-            console.error(`❌ [GEMINI ERROR] Status: ${res.status}. Body: ${err.substring(0, 200)}`);
-            return null;
+            console.error(`❌ [GEMINI VISION FAIL] Status: ${res.status}. Body: ${err.substring(0, 100)}`);
         }
-
-        const data = await res.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+        return null;
     } catch (e) {
         console.error("❌ [GEMINI FETCH FAIL]", e.message);
         return null;
