@@ -155,13 +155,24 @@ async function transcribeVoice(buffer) {
     } catch (err) { return null; }
 }
 
-async function extractFrame(buffer) {
-    try {
-        // Extracts the first frame of a GIF or image and converts to a standard JPEG buffer
-        return await sharp(buffer, { animated: true }).toFormat("jpeg").toBuffer();
-    } catch (e) {
-        return buffer; // Fallback to original
-    }
+// --- UTILITIES ---
+function sanitizeHistory(memory, engine) {
+    return memory.filter(m => m.role !== "system").map(m => {
+        let role = m.role;
+        if (engine === "gemini" && role === "assistant") role = "model";
+        if (engine === "groq" && role === "model") role = "assistant";
+        
+        return {
+            role: role,
+            parts: engine === "gemini" ? [{ text: m.content || "" }] : undefined,
+            content: engine === "groq" ? (m.content || "") : undefined
+        };
+    }).map(m => {
+        const clean = { role: m.role };
+        if (m.parts) clean.parts = m.parts;
+        if (m.content) clean.content = m.content;
+        return clean;
+    });
 }
 
 async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
@@ -171,29 +182,26 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
     let model = "gemini-1.5-flash"; 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    const parts = [];
+    // Clean conversational history for Gemini
+    const history = sanitizeHistory(memory.slice(-MAX_MEMORY_LENGTH), "gemini");
+    const currentParts = [];
+    
     if (mediaBuffer) {
         let mimeType = "image/jpeg";
         if (mediaType === "video") mimeType = "video/mp4";
-        else if (mediaType === "audio") mimeType = "audio/ogg"; // Correct MIME for WA Audio
+        else if (mediaType === "audio") mimeType = "audio/ogg"; 
         else if (mediaType === "gif") mimeType = "image/gif";
         
-        // Multi-modal message structure (Gemini 1.5 prefers text AFTER/WITH media)
-        parts.push({
-            inline_data: {
-                mime_type: mimeType,
-                data: mediaBuffer.toString("base64")
-            }
-        });
+        currentParts.push({ inline_data: { mime_type: mimeType, data: mediaBuffer.toString("base64") } });
     }
+    currentParts.push({ text: userMessage || "What is in this media? Respond naturally." });
 
-    parts.push({ text: userMessage || "What is in this media? Respond naturally." });
+    // Combine history and current message
+    const contents = [...history, { role: "user", parts: currentParts }];
 
     const body = { 
-        system_instruction: {
-            parts: [{ text: memory[0].content }]
-        },
-        contents: [{ role: "user", parts: parts }],
+        system_instruction: { parts: [{ text: memory[0].content }] },
+        contents: contents,
         generationConfig: { temperature: 0.8, maxOutputTokens: 1024 }
     };
 
@@ -206,7 +214,7 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
 
         if (!res.ok) {
             const err = await res.text();
-            console.error("❌ [GEMINI ERROR]", err);
+            console.error(`❌ [GEMINI ERROR] Status: ${res.status}. Body: ${err.substring(0, 200)}`);
             return null;
         }
 
@@ -277,7 +285,11 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
         // 3. Text Only or Root Fallback
         if (!reply && groqKey) {
             console.log("🔍 [ANALYSIS] Engine: Groq Llama-3.3 (Text)");
-            const apiContext = [memory[0], ...memory.slice(-MAX_MEMORY_LENGTH)];
+            const history = memory.slice(-MAX_MEMORY_LENGTH).map(m => ({ 
+                role: m.role === "model" || m.role === "assistant" ? "assistant" : "user", 
+                content: m.content || "" 
+            }));
+            const apiContext = [memory[0], ...history];
             apiContext.push({ role: "user", content: userMessage || "(Analyze image contents above)" });
 
             const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -288,6 +300,9 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             if (res.ok) {
                 const data = await res.json();
                 reply = data?.choices?.[0]?.message?.content;
+            } else {
+                const err = await res.text();
+                console.error(`❌ [GROQ ERROR] Status: ${res.status}. Body: ${err.substring(0, 200)}`);
             }
         }
     } catch (err) {
