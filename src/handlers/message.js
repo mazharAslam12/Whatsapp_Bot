@@ -127,7 +127,13 @@ async function handleMessage(sock, msg) {
                 mediaBuffer = await downloadMediaMessage(msg, "buffer", {}, { logger: { level: "silent" } });
                 
                 mediaType = msgType.replace("Message", "");
-                const extensionMap = { image: "jpg", video: "mp4", audio: "mp3", document: "bin", sticker: "webp" };
+                
+                // Detect GIFs specifically (Baileys sends them as videoMessage with gifPlayback: true)
+                if (msgType === "videoMessage" && content.gifPlayback) {
+                    mediaType = "gif";
+                }
+
+                const extensionMap = { image: "jpg", video: "mp4", audio: "mp3", document: "bin", sticker: "webp", gif: "gif" };
                 const extension = extensionMap[mediaType] || "bin";
                 
                 const fileName = `media_${Date.now()}.${extension}`;

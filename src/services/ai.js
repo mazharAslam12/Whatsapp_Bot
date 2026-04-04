@@ -59,18 +59,20 @@ async function getOrInitMemory(senderJid, userName) {
             "- Name: " + profile.name + "\n" +
             "- Relationship: " + profile.relationship + "\n" +
             "- Current Intelligence: " + await performDeepAnalysis(senderJid) + "\n\n" +
-            "🎯 CORE TRIGGERS (USE THESE FREQUENTLY):\n" +
-            "- `[WEB_SEARCH: query]`: Use if you need real-time info.\n" +
-            "- `[REACTION: emoji]`: Use for every emotion (e.g. [REACTION: 🚀]).\n" +
-            "- `[GIF: category]`: Use often for emotions (smile, dance, laugh, wink).\n" +
-            "- `[IMG_SEARCH: query]`: Use to show examples or pictures.\n" +
-            "- `[SONG_SEARCH: name]`: For music requests.\n" +
+            "🎯 CORE TRIGGERS (USE CONTEXTUALLY):\n" +
+            "- `[WEB_SEARCH: query]`: Find answers online if you don't know.\n" +
+            "- `[REACTION: emoji]`: React to user's message (e.g. [REACTION: 🔥]).\n" +
+            "- `[GIF: category]`: Use ONLY for emotions. Whitelist: smile, wave, happy, dance, laugh, hug, wink, pat, bonk, yeet, bully, slap, kill, cringe, cuddle, cry, highfive, handhold, nom, bite, glomp, slap, kick.\n" +
+            "- `[IMG_SEARCH: query]`: Find pictures only when asked or highly relevant.\n" +
+            "- `[SONG_SEARCH: name]`: Send actual MP3.\n" +
             "- `[AI_STOP: mins]`: For temporary pauses.\n\n" +
-            "🎯 HUMAN RULES (CRITICAL):\n" +
-            "1. NO ROBOT TALK: Never say 'How can I help', 'I am an AI', or 'I am Mazhar DevX' repeatedly. Just be a guy named Mazhar.\n" +
-            "2. EXTREME BREVITY: Max 2 short WhatsApp-style sentences. Use 'han', 'yaar', 'theek', 'acha'.\n" +
-            "3. NO BRAGGING: Don't talk about projects unless asked. Just chat.\n" +
-            "4. NATURAL FLOW: If they say 'hi', just say 'Hi yaar, kaisa hai?'. No formal greetings.\n" +
+            "🎯 HUMAN RULES (CRITICAL, DO NOT BREAK):\n" +
+            "1. BE A NORMAL PERSON: If someone says just 'hi', reply short like 'Han bhai', 'Hi, kya haal hai?'. No formal assist talk.\n" +
+            "2. EXTREME BREVITY: Write 1 or 2 short sentences max. Chat like you are on WhatsApp.\n" +
+            "3. NO ROBOTIC HELPER: Never say 'I am an AI' or 'How can I assist'. You are Mazhar.\n" +
+            "4. NO UNPROMPTED BRAGGING: Only mention skills if asked.\n" +
+            "5. CASUAL TONE: Use 'yaar', 'bhai', 'han', 'theek'. Keep it cool.\n" +
+            "6. AVOID REPETITION: React naturally to every message.\n" +
             (adminCustomPrompt ? `\n👑 MASTER DIRECTIVE: ${adminCustomPrompt}` : "") +
             (userSpecificPrompts.has(senderJid) ? `\n🔥 TARGET OVERRIDE: ${userSpecificPrompts.get(senderJid)}` : "")
     };
@@ -172,18 +174,14 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
     let model = "gemini-1.5-flash"; 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    // Structure for Gemini 1.5 Multimodal
     const parts = [];
-    
-    // Add context and prompt
-    parts.push({ text: memory[0].content + "\n\n" + (userMessage || "Describe this media in detail.") });
-
     if (mediaBuffer) {
         let mimeType = "image/jpeg";
         if (mediaType === "video") mimeType = "video/mp4";
-        else if (mediaType === "audio") mimeType = "audio/mpeg";
+        else if (mediaType === "audio") mimeType = "audio/wave"; // OGG fallback
         else if (mediaType === "gif") mimeType = "image/gif";
-
+        
+        // Multi-modal message structure (Gemini 1.5 prefers text AFTER/WITH media)
         parts.push({
             inline_data: {
                 mime_type: mimeType,
@@ -192,11 +190,21 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
         });
     }
 
+    parts.push({ text: userMessage || "What is in this media? Respond naturally." });
+
+    const body = { 
+        system_instruction: {
+            parts: [{ text: memory[0].content }]
+        },
+        contents: [{ role: "user", parts: parts }],
+        generationConfig: { temperature: 0.8, maxOutputTokens: 1024 }
+    };
+
     try {
         const res = await fetch(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contents: [{ parts: parts }] })
+            body: JSON.stringify(body)
         });
 
         if (!res.ok) {
