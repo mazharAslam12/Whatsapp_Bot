@@ -91,16 +91,28 @@ function buildMainMenu() {
 
 async function handleMessage(sock, msg) {
     try {
-        if (!msg.message || msg.key.fromMe) return;
-        const msgType = Object.keys(msg.message)[0];
+        const getMessageContent = (m) => {
+            if (!m) return null;
+            if (m.ephemeralMessage) return getMessageContent(m.ephemeralMessage.message);
+            if (m.viewOnceMessage) return getMessageContent(m.viewOnceMessage.message);
+            if (m.viewOnceMessageV2) return getMessageContent(m.viewOnceMessageV2.message);
+            if (m.documentWithCaptionMessage) return getMessageContent(m.documentWithCaptionMessage.message);
+            return m;
+        };
+
+        const content = getMessageContent(msg.message);
+        if (!content) return;
+
+        const msgType = Object.keys(content)[0];
         const jid = msg.key.remoteJid;
         const pushName = msg.pushName || "User";
         const phoneNumber = jid.split("@")[0];
 
-        const rawText = msg.message.conversation ||
-            msg.message.extendedTextMessage?.text ||
-            msg.message.imageMessage?.caption ||
-            msg.message.videoMessage?.caption ||
+        const rawText = content.conversation ||
+            content.extendedTextMessage?.text ||
+            content.imageMessage?.caption ||
+            content.videoMessage?.caption ||
+            content.documentMessage?.caption ||
             "";
         const text = rawText.trim();
 
@@ -109,36 +121,53 @@ async function handleMessage(sock, msg) {
         let mediaType = null;
         let mediaData = null;
 
-        if (msgType === "imageMessage" || msgType === "videoMessage" || msgType === "audioMessage" || msgType === "documentWithCaptionMessage") {
+        const mediaTypes = ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "stickerMessage"];
+        if (mediaTypes.includes(msgType)) {
             try {
                 mediaBuffer = await downloadMediaMessage(msg, "buffer", {}, { logger: { level: "silent" } });
                 
-                // Refined media type detection
-                if (msgType === "imageMessage") mediaType = "image";
-                else if (msgType === "videoMessage") mediaType = "video";
-                else if (msgType === "audioMessage") mediaType = "audio";
-                else if (msgType === "documentWithCaptionMessage") mediaType = "document";
+                mediaType = msgType.replace("Message", "");
+                const extensionMap = { image: "jpg", video: "mp4", audio: "mp3", document: "bin", sticker: "webp" };
+                const extension = extensionMap[mediaType] || "bin";
                 
-                if (mediaType && mediaType !== "audio") {
-                    const extension = mediaType === "image" ? "jpg" : (mediaType === "video" ? "mp4" : "bin");
-                    const fileName = `media_${Date.now()}.${extension}`;
-                    const filePath = path.join(FILE_BASE_DIR, fileName);
-                    await fs.writeFile(filePath, mediaBuffer);
-                    mediaData = { type: mediaType, url: `/media/${fileName}` };
-                }
+                const fileName = `media_${Date.now()}.${extension}`;
+                const filePath = path.join(FILE_BASE_DIR, fileName);
+                await fs.writeFile(filePath, mediaBuffer);
+                mediaData = { type: mediaType, url: `/media/${fileName}` };
             } catch (e) {
                 console.error("❌ [MEDIA DOWNLOAD ERROR]", e.message);
             }
         }
 
-        // Fetch Profile Picture (with caching)
+        // --- PROFILE & IDENTITY SYNC ---
         let profilePic = profilePicCache.get(jid) || null;
-        if (!profilePic && !jid.endsWith("@g.us")) {
-            try {
+        try {
+            // Force fetch if not in cache or every few messages
+            if (!profilePic || Math.random() > 0.8) {
                 profilePic = await sock.profilePictureUrl(jid, 'image').catch(() => null);
-                if (profilePic) profilePicCache.set(jid, profilePic);
-            } catch (e) {}
-        }
+                if (profilePic) {
+                    profilePicCache.set(jid, profilePic);
+                    // Save profile pic locally for dashboard use
+                    const safeJidName = jid.replace(/[:@.]/g, "_");
+                    const profileDir = path.join(FILE_BASE_DIR, "profiles");
+                    await fs.mkdir(profileDir, { recursive: true });
+                    
+                    const picRes = await fetch(profilePic);
+                    if (picRes.ok) {
+                        const picBuffer = Buffer.from(await picRes.arrayBuffer());
+                        await fs.writeFile(path.join(profileDir, `${safeJidName}.jpg`), picBuffer);
+                        profilePic = `/media/profiles/${safeJidName}.jpg`;
+                    }
+                    
+                    // Update user metadata JSON
+                    const { getProfile } = require("../services/profile");
+                    const profile = await getProfile(jid, pushName);
+                    profile.profilePic = profilePic;
+                    const profilePath = path.join(FILE_BASE_DIR, "profiles", `${safeJidName}.json`);
+                    await fs.writeFile(profilePath, JSON.stringify(profile, null, 2));
+                }
+            }
+        } catch (e) {}
 
         events.emit("wa_message", { 
             text: text, 
@@ -146,7 +175,7 @@ async function handleMessage(sock, msg) {
             senderNumber: phoneNumber, 
             jid: jid,
             media: mediaData,
-            profilePic: profilePic
+            profilePic: profilePic || `https://ui-avatars.com/api/?name=${encodeURIComponent(pushName)}&background=0a0f1f&color=00f2fe&bold=true`
         });
 
 

@@ -576,9 +576,14 @@
             </div>
 
             <header class="workspace-header">
-                <div>
-                    <h2 id="active-user-name" class="chat-target-name"><i class="fas fa-dragon"></i> Null Session</h2>
-                    <div id="active-user-jid" class="chat-target-jid">OFFLINE CONTEXT</div>
+                <div style="display:flex; align-items:center; gap:20px">
+                    <div class="avatar-box" style="width:64px; height:64px; border-radius:22px; border:2px solid var(--primary-cyan); box-shadow: 0 0 15px rgba(0,242,254,0.2)">
+                        <img id="active-user-pic" src="https://ui-avatars.com/api/?name=User&background=0a0f1f&color=00f2fe&bold=true" style="width:100%; height:100%; object-fit:cover;">
+                    </div>
+                    <div>
+                        <h2 id="active-user-name" class="chat-target-name"><i class="fas fa-bolt"></i> Null Session</h2>
+                        <div id="active-user-jid" class="chat-target-jid">OFFLINE CONTEXT</div>
+                    </div>
                 </div>
                 <div id="master-controls" style="display:none; gap:14px">
                     <button id="ai-toggle-btn" class="btn btn-ghost" style="padding:10px 24px; font-size:0.7rem"><i class="fas fa-robot"></i> AI: ACTIVE</button>
@@ -746,7 +751,7 @@
         if(data.history && data.history.length) {
             data.history.forEach(msg => {
                 if(msg.role === 'system') return;
-                appendBubble(msg.role === 'user' ? 'whatsapp' : 'ai', msg.content, msg.timestamp);
+                appendBubble(msg.role === 'user' ? 'whatsapp' : 'ai', msg.content, msg.timestamp, msg.media);
             });
         } else {
             feed.innerHTML = '<div style="text-align:center; margin: auto; opacity:0.5;"><i class="fas fa-comment"></i> No messages yet</div>';
@@ -755,16 +760,19 @@
     });
 
     socket.on('new_message', (data) => {
-        if(data.jid === currentJid) {
-            appendBubble(data.role === 'whatsapp' ? 'whatsapp' : 'ai', data.text, Date.now(), data.media);
-            feed.scrollTo(0, feed.scrollHeight);
-        }
         const existing = knownContacts.find(c => c.jid === data.jid);
         if (existing) {
             if (data.senderName) existing.name = data.senderName;
+            if (data.profilePic) existing.profilePic = data.profilePic;
             renderContacts();
         } else {
             socket.emit('get_contacts');
+        }
+
+        if(data.jid === currentJid) {
+            if (data.profilePic) document.getElementById('active-user-pic').src = data.profilePic;
+            appendBubble(data.role === 'whatsapp' ? 'whatsapp' : 'ai', data.text, Date.now(), data.media);
+            feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' });
         }
     });
 
@@ -774,16 +782,26 @@
         
         let mediaMarkup = '';
         if (media) {
-            if (media.type === 'image') mediaMarkup = `<div class="media-attachment"><img src="${media.url}" loading="lazy"></div>`;
-            else if (media.type === 'video') mediaMarkup = `<div class="media-attachment"><video src="${media.url}" controls></video></div>`;
+            const mUrl = media.url;
+            if (media.type === 'image' || media.type === 'sticker') {
+                mediaMarkup = `<div class="media-attachment"><img src="${mUrl}" onclick="window.open('${mUrl}')" style="cursor:pointer"></div>`;
+            } else if (media.type === 'video') {
+                mediaMarkup = `<div class="media-attachment"><video src="${mUrl}" controls preload="metadata"></video></div>`;
+            } else if (media.type === 'audio') {
+                mediaMarkup = `<div class="media-attachment"><audio src="${mUrl}" controls style="width:100%"></audio></div>`;
+            } else if (media.type === 'document') {
+                mediaMarkup = `<div class="media-attachment" style="padding:15px; background:rgba(255,255,255,0.05); cursor:pointer" onclick="window.open('${mUrl}')">
+                    <i class="fas fa-file-pdf" style="color:var(--danger-crimson)"></i> <span style="font-size:0.8rem; margin-left:10px">Document Attachment</span>
+                </div>`;
+            }
         }
 
         container.innerHTML = `
             <div class="msg-bubble">
-                <div class="msg-content">${text ? escapeHtml(text) : '<i>[Media Asset]</i>'}</div>
                 ${mediaMarkup}
-                <div style="margin-top:12px; font-size:0.6rem; color:var(--text-muted); text-align:right; font-weight:600">
-                    ${new Date(time).toLocaleTimeString()}
+                <div class="msg-content">${text ? escapeHtml(text) : ''}</div>
+                <div style="margin-top:10px; font-size:0.6rem; color:var(--text-muted); text-align:right; font-weight:700">
+                    <i class="far fa-clock"></i> ${new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
             </div>
         `;
@@ -793,9 +811,11 @@
     sendBtn.onclick = () => {
         const text = mainInput.value.trim();
         if(!text || !currentJid) return;
-        socket.emit('admin_reply', { jid: currentJid, text });
+        
+        // Optimistic UI
         appendBubble('ai', '👑 MASTER: ' + text, Date.now());
-        feed.scrollTo(0, feed.scrollHeight);
+        
+        socket.emit('admin_reply', { jid: currentJid, text });
         mainInput.value = '';
     };
 

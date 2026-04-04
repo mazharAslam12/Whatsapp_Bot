@@ -42,6 +42,16 @@ function startWebServer() {
                 res.writeHead(404, { "Content-Type": "text/plain" });
                 res.end("Dashboard file missing.");
             }
+        } else if (req.url.startsWith("/media/profiles/")) {
+            const fileName = req.url.split("/").pop();
+            const filePath = path.join(process.cwd(), "user_files", "profiles", fileName);
+            if (fs.existsSync(filePath)) {
+                res.writeHead(200, { "Content-Type": "image/jpeg" });
+                fs.createReadStream(filePath).pipe(res);
+            } else {
+                res.writeHead(404);
+                res.end("Profile pic not found");
+            }
         } else if (req.url.startsWith("/media/")) {
             const fileName = req.url.split("/").pop();
             const filePath = path.join(process.cwd(), "user_files", fileName);
