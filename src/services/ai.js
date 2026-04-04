@@ -159,6 +159,57 @@ async function transcribeVoice(buffer) {
     } catch (err) { return null; }
 }
 
+async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return null;
+
+    let model = "gemini-1.5-flash"; // Speed & multimodal performance
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const contents = [];
+    
+    // Add system-ish context at the start of the user message if it's a new conversation or first message in context
+    const context = memory[0].content + "\n\n" + (userMessage || "Describe this media.");
+
+    const parts = [{ text: context }];
+
+    if (mediaBuffer) {
+        let mimeType = "image/jpeg";
+        if (mediaType === "video") mimeType = "video/mp4";
+        if (mediaType === "audio") mimeType = "audio/mpeg";
+        if (mediaType === "gif") mimeType = "image/gif";
+
+        parts.push({
+            inline_data: {
+                mime_type: mimeType,
+                data: mediaBuffer.toString("base64")
+            }
+        });
+    }
+
+    contents.push({ role: "user", parts: parts });
+
+    try {
+        const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: contents, generationConfig: { temperature: 0.7, maxOutputTokens: 1024 } })
+        });
+
+        if (!res.ok) {
+            const err = await res.text();
+            console.error("❌ [GEMINI ERROR]", err);
+            return null;
+        }
+
+        const data = await res.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+    } catch (e) {
+        console.error("❌ [GEMINI FETCH FAIL]", e.message);
+        return null;
+    }
+}
+
 async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuffer = null, mediaType = null) {
     const now = Date.now();
     if (stopAiStatus.has(senderJid)) {
@@ -170,50 +221,81 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
         return "🔊 AI Response Phir se start hai yaar! Main hazir hoon. 🚀";
     }
 
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) return "⚠️ Groq API key is missing.";
+    const groqKey = process.env.GROQ_API_KEY;
+    const geminiKey = process.env.GEMINI_API_KEY;
+    
+    if (!groqKey && !geminiKey) return "⚠️ AI keys are missing. Please configure .env";
 
     const memory = await getOrInitMemory(senderJid, userName);
-    let messageContent = userMessage;
-    let model = "llama-3.3-70b-versatile";
+    let reply = null;
 
-    if (mediaBuffer && (mediaType === "image" || mediaType === "gif" || mediaType === "video")) {
-        model = "llama-3.2-11b-vision-preview";
-        const base64Media = mediaBuffer.toString("base64");
-        messageContent = [
-            { type: "text", text: userMessage || `Analyze this ${mediaType}.` },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
-        ];
+    // --- MODEL ROUTER (ULTRA PERFORMANCE) ---
+    try {
+        // 1. If Media + Gemini available -> Use Gemini (Multimodal King)
+        if (mediaBuffer && geminiKey) {
+            console.log(`🚀 [ROUTER] Routing ${mediaType} to Gemini 1.5 Flash...`);
+            reply = await geminiAiReply(userMessage, memory, mediaBuffer, mediaType);
+        }
+
+        // 2. If Media + Groq Vision (Image only) -> Use Groq Vision
+        if (!reply && mediaBuffer && mediaType === "image" && groqKey) {
+            console.log("🚀 [ROUTER] Routing Image to Groq Vision...");
+            const base64Media = mediaBuffer.toString("base64");
+            const apiContext = [memory[0], ...memory.slice(-MAX_MEMORY_LENGTH)];
+            apiContext.push({
+                role: "user",
+                content: [
+                    { type: "text", text: userMessage || "Analyze this image." },
+                    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
+                ]
+            });
+
+            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
+                body: JSON.stringify({ model: "llama-3.2-11b-vision-preview", messages: apiContext, temperature: 0.7 })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                reply = data?.choices?.[0]?.message?.content;
+            }
+        }
+
+        // 3. Text Only or Fallback -> Use Groq (Lightning Fast Text)
+        if (!reply && groqKey) {
+            console.log("🚀 [ROUTER] Routing Text to Groq Llama-3.3...");
+            const apiContext = [memory[0], ...memory.slice(-MAX_MEMORY_LENGTH)];
+            apiContext.push({ role: "user", content: userMessage || "(Media input received but not analyzed)" });
+
+            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
+                body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: apiContext, temperature: 0.7 })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                reply = data?.choices?.[0]?.message?.content;
+            }
+        }
+    } catch (err) {
+        console.error("❌ [ROUTER ERROR]", err.message);
     }
 
-    memory.push({ role: "user", content: messageContent });
-    const apiContext = [memory[0], ...memory.slice(-MAX_MEMORY_LENGTH)];
+    if (!reply) return "❌ AI brain is busy. Try again soon.";
 
-    try {
-        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-            body: JSON.stringify({ model: model, messages: apiContext, temperature: 0.7, max_tokens: 1024 })
-        });
+    // Handle AI Stop Signal
+    if (reply.includes("[AI_STOP:")) {
+        const mins = parseInt(reply.match(/\[AI_STOP:\s*(\d+)\]/i)?.[1]) || 1;
+        stopAiStatus.set(senderJid, Date.now() + (mins * 60 * 1000));
+        reply = reply.replace(/\[AI_STOP:.*?\]/i, "").trim() || `🔇 Theek hai, main ${mins} min break pe hoon.`;
+    }
 
-        if (!res.ok) {
-            const errorText = await res.text();
-            console.error(`❌ [AI BRAIN BUSY] Groq Error: ${res.status} - ${errorText}`);
-            return "❌ AI brain is busy. Try again soon.";
-        }
-        const data = await res.json();
-        let reply = data?.choices?.[0]?.message?.content?.trim() || "I couldn't process your request.";
+    // Save to memory
+    memory.push({ role: "user", content: userMessage || `[${mediaType}]` });
+    memory.push({ role: "assistant", content: reply });
+    await saveMemory(senderJid, memory);
 
-        if (reply.includes("[AI_STOP:")) {
-            const mins = parseInt(reply.match(/\[AI_STOP:\s*(\d+)\]/i)?.[1]) || 1;
-            stopAiStatus.set(senderJid, Date.now() + (mins * 60 * 1000));
-            reply = reply.replace(/\[AI_STOP:.*?\]/i, "").trim() || `🔇 Theek hai, main ${mins} min break pe hoon.`;
-        }
-
-        memory.push({ role: "assistant", content: reply });
-        await saveMemory(senderJid, memory);
-        return reply;
-    } catch (err) { return "⚠️ [SYSTEM] AI logic error."; }
+    return reply.trim();
 }
 
 function toggleUserAi(jid, status) {
@@ -250,13 +332,19 @@ async function getAllContacts() {
                 if (profile.profilePic && profile.profilePic !== "No Pic") profilePic = profile.profilePic;
             } catch(e) {}
 
+            const now = Date.now();
+            const pauseUntil = stopAiStatus.get(jid) || 0;
+            const isPaused = now < pauseUntil;
+
             return { 
                 jid, 
                 file: f, 
                 name, 
                 profilePic, 
                 overrideActive: userSpecificPrompts.has(jid),
-                aiEnabled: isAiEnabled(jid) 
+                aiEnabled: isAiEnabled(jid),
+                isPaused: isPaused,
+                pauseRemaining: isPaused ? Math.ceil((pauseUntil - now) / 60000) : 0
             };
         });
         return await Promise.all(contactPromises);

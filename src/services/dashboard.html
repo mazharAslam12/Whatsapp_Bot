@@ -659,14 +659,29 @@
                 ? c.profilePic 
                 : `https://ui-avatars.com/api/?name=${encodeURIComponent(c.name)}&background=0a0f1f&color=00f2fe&bold=true&size=54`;
             
-            let metaText = c.overrideActive ? '<span style="color:var(--danger-crimson)"><i class="fas fa-skull"></i> OVERRIDE ACTIVE</span>' : '<i class="fas fa-check-circle"></i> v5.0 Protocol';
-            if (c.aiEnabled === false) metaText = '<span style="color:var(--danger-crimson); font-weight:900"><i class="fas fa-microphone-slash"></i> AI MUTED</span>';
+            let statusIcon = '<i class="fas fa-check-circle" style="color:var(--primary-cyan)"></i>';
+            let statusText = 'v5.0 Protocol';
+            let statusColor = 'var(--primary-cyan)';
+
+            if (c.aiEnabled === false) {
+                statusIcon = '<i class="fas fa-microphone-slash"></i>';
+                statusText = 'AI MUTED';
+                statusColor = 'var(--danger-crimson)';
+            } else if (c.isPaused) {
+                statusIcon = '<i class="fas fa-clock"></i>';
+                statusText = `PAUSED (${c.pauseRemaining}m)`;
+                statusColor = '#fbbf24';
+            } else if (c.overrideActive) {
+                statusIcon = '<i class="fas fa-skull"></i>';
+                statusText = 'OVERRIDE';
+                statusColor = '#8b5cf6';
+            }
             
             card.innerHTML = `
                 <div class="avatar-box"><img src="${avatar}" loading="lazy"></div>
                 <div class="contact-detail">
                     <div class="contact-user">${escapeHtml(c.name)}</div>
-                    <div class="contact-meta">${metaText}</div>
+                    <div class="contact-meta" style="color:${statusColor}">${statusIcon} ${statusText}</div>
                 </div>
             `;
             contactList.appendChild(card);
@@ -709,8 +724,17 @@
         document.getElementById('active-user-name').innerHTML = `<i class="fas fa-bolt"></i> ${contact ? escapeHtml(contact.name) : jid.split('@')[0]}`;
         document.getElementById('active-user-jid').innerText = jid;
         document.getElementById('master-controls').style.display = 'flex';
+        
         const aiActiveStatus = contact?.aiEnabled !== false;
-        document.getElementById('ai-toggle-btn').innerHTML = aiActiveStatus ? '<i class="fas fa-microchip"></i> AI: ACTIVE' : '<i class="fas fa-ban"></i> AI: BYPASS';
+        const isPaused = contact?.isPaused;
+        
+        let aiBtnHtml = '<i class="fas fa-microchip"></i> AI: ACTIVE';
+        if (!aiActiveStatus) aiBtnHtml = '<i class="fas fa-ban"></i> AI: MUTED';
+        else if (isPaused) aiBtnHtml = `<i class="fas fa-clock"></i> AI: PAUSED (${contact.pauseRemaining}m)`;
+        
+        document.getElementById('ai-toggle-btn').innerHTML = aiBtnHtml;
+        document.getElementById('ai-toggle-btn').style.color = !aiActiveStatus ? 'var(--danger-crimson)' : (isPaused ? '#fbbf24' : 'var(--primary-cyan)');
+        
         mainInput.placeholder = `⍟ Bypass to ${jid.split('@')[0]}...`;
         renderContacts();
         socket.emit('load_chat', { jid });

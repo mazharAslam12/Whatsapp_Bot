@@ -109,13 +109,19 @@ async function handleMessage(sock, msg) {
         let mediaType = null;
         let mediaData = null;
 
-        if (msgType === "imageMessage" || msgType === "videoMessage" || msgType === "audioMessage") {
+        if (msgType === "imageMessage" || msgType === "videoMessage" || msgType === "audioMessage" || msgType === "documentWithCaptionMessage") {
             try {
                 mediaBuffer = await downloadMediaMessage(msg, "buffer", {}, { logger: { level: "silent" } });
-                mediaType = msgType.replace("Message", "");
                 
-                if (msgType !== "audioMessage") {
-                    const fileName = `media_${Date.now()}.${mediaType === "image" ? "jpg" : "mp4"}`;
+                // Refined media type detection
+                if (msgType === "imageMessage") mediaType = "image";
+                else if (msgType === "videoMessage") mediaType = "video";
+                else if (msgType === "audioMessage") mediaType = "audio";
+                else if (msgType === "documentWithCaptionMessage") mediaType = "document";
+                
+                if (mediaType && mediaType !== "audio") {
+                    const extension = mediaType === "image" ? "jpg" : (mediaType === "video" ? "mp4" : "bin");
+                    const fileName = `media_${Date.now()}.${extension}`;
                     const filePath = path.join(FILE_BASE_DIR, fileName);
                     await fs.writeFile(filePath, mediaBuffer);
                     mediaData = { type: mediaType, url: `/media/${fileName}` };
