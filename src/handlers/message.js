@@ -246,10 +246,11 @@ async function handleMessage(sock, msg) {
             await safeSendMessage(sock, jid, { react: { text: reactionMatch[1], key: msg.key } });
         }
 
-        // 2. MEDIA TRIGGERS (Images, GIFs, Songs)
+        // 2. MEDIA TRIGGERS (Images, GIFs, Songs, Web Search)
         const imgMatch = aiReply.match(/\[IMG_SEARCH:\s*(.*?)\]/i);
         if (imgMatch) {
-            const urls = await searchImages(imgMatch[1], 1);
+            const { searchWebImages } = require("../services/search");
+            const urls = await searchWebImages(imgMatch[1], 1);
             if (urls?.[0]) {
                 await safeSendMessage(sock, jid, { image: { url: urls[0] }, caption: "💎 Mazhar DevX Discovery" });
                 // Save to memory
@@ -264,18 +265,34 @@ async function handleMessage(sock, msg) {
 
         const gifMatch = aiReply.match(/\[GIF:\s*(.*?)\]/i);
         if (gifMatch) {
+            const { getGif } = require("../services/gif");
             const category = gifMatch[1].toLowerCase();
-            const res = await fetch(`https://api.waifu.pics/sfw/${category}`);
-            if (res.ok) {
-                const data = await res.json();
-                await safeSendMessage(sock, jid, { video: { url: data.url }, gifPlayback: true });
-                // Persistent History Fix: Save GIF URL to memory
+            const gifData = await getGif(category);
+            
+            if (gifData && gifData.url) {
+                // gifData.isMp4 tells us if it's natively an MP4 video or a webp/gif
+                await safeSendMessage(sock, jid, { video: { url: gifData.url }, gifPlayback: true });
+                
+                // Persistent History Fix
                 const { getMemory, saveMemory } = require("../services/ai");
                 const history = await getMemory(jid);
                 if (history.length && history[history.length - 1].role === "assistant") {
-                    history[history.length - 1].media = { type: "gif", url: data.url };
+                    history[history.length - 1].media = { type: "gif", url: gifData.url };
                     await saveMemory(jid, history);
                 }
+            }
+        }
+
+        const webMatch = aiReply.match(/\[WEB_SEARCH:\s*(.*?)\]/i);
+        if (webMatch) {
+            const { deepSearch } = require("../services/search");
+            const results = await deepSearch(webMatch[1], "web");
+            if (results && results.length > 0) {
+                let textResult = `🌐 *Deep Search: "${webMatch[1]}"*\n\n`;
+                results.slice(0, 3).forEach((r, i) => {
+                     textResult += `*${i+1}. ${r.title}*\n${r.url}\n\n`;
+                });
+                await safeSendMessage(sock, jid, { text: textResult.trim() });
             }
         }
 
