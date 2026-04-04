@@ -287,9 +287,9 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             reply = await geminiAiReply(userMessage, memory, mediaBuffer, mediaType);
         }
 
-        // 2. If Media (Image/GIF/Video) + Groq Vision Fallback
+        // 2. If Media (Image/GIF/Video) + Groq Vision Fallback Chain
         if (!reply && mediaBuffer && groqKey) {
-            console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Groq Vision (Fallback)`);
+            console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Groq Vision (Fallback Chain)`);
             
             // Extracted first frame for Groq Vision compatibility
             const frameBuffer = await extractFrame(mediaBuffer);
@@ -307,49 +307,71 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                 }
             ];
 
-            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
-                body: JSON.stringify({ model: "llama-3.2-11b-vision-preview", messages: apiContext, temperature: 0.7 })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                reply = data?.choices?.[0]?.message?.content;
-            } else {
-                const err = await res.text();
-                console.error(`🔍 [GROQ VISION FAIL] Status: ${res.status}. Error Details: ${err}`);
+            const visionModels = ["llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"];
+            for (const vModel of visionModels) {
+                const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
+                    body: JSON.stringify({ model: vModel, messages: apiContext, temperature: 0.7 })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    reply = data?.choices?.[0]?.message?.content;
+                    if (reply) break;
+                } else {
+                    console.error(`🔍 [GROQ VISION ${vModel} FAIL] Status: ${res.status}`);
+                }
             }
         }
 
-        // 3. Text Only or Root Fallback (SKIP IF MEDIA PRESENT to prevent lying)
-        if (!reply && groqKey && !mediaBuffer) {
-            console.log("🔍 [ANALYSIS] Engine: Groq Llama-3.3 (Text)");
-            const history = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "groq");
-            const apiContext = [memory[0], ...history];
+        // 3. Text Only Fallback Chain (ALWAYS EXECUTED IF STILL NO REPLY)
+        if (!reply && groqKey) {
+            console.log("🔍 [ANALYSIS] Engine: Groq Text Fallback Chain");
             
-            // Fix role alternation for text-only Groq fallback
-            if (apiContext[apiContext.length - 1].role === "user") {
-                apiContext[apiContext.length - 1].content += "\n" + (userMessage || "(Analyze text context above)");
+            let apiContext;
+            if (mediaBuffer) {
+                // If it reached here WITH media Buffer, all vision APIs failed (Rate limits/Down).
+                // DO NOT CRASH. Strip the image and ask the Text Models for help!
+                const safeHistory = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "groq");
+                apiContext = [memory[0], ...safeHistory];
+                const msg = `[Sent an Image/Video, but my eyes are temporarily offline. User caption: "${userMessage}"]`;
+                if (apiContext.length > 1 && apiContext[apiContext.length - 1].role === "user") {
+                    apiContext[apiContext.length - 1].content += "\n" + msg;
+                } else {
+                    apiContext.push({ role: "user", content: msg });
+                }
             } else {
-                apiContext.push({ role: "user", content: userMessage || "(Analyze text context above)" });
+                const history = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "groq");
+                apiContext = [memory[0], ...history];
+                if (apiContext.length > 1 && apiContext[apiContext.length - 1].role === "user") {
+                    apiContext[apiContext.length - 1].content += "\n" + (userMessage || "(Analyze text context above)");
+                } else {
+                    apiContext.push({ role: "user", content: userMessage || "(Analyze text context above)" });
+                }
             }
 
-            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
-                body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: apiContext, temperature: 0.7 })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                reply = data?.choices?.[0]?.message?.content;
-            } else {
-                const err = await res.text();
-                console.error(`❌ [GROQ ERROR] Status: ${res.status}. Body: ${err.substring(0, 200)}`);
+            const textModels = [
+                "llama-3.3-70b-versatile",
+                "llama3-70b-8192",
+                "mixtral-8x7b-32768",
+                "llama3-8b-8192",
+                "gemma2-9b-it"
+            ];
+
+            for (const tModel of textModels) {
+                const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
+                    body: JSON.stringify({ model: tModel, messages: apiContext, temperature: 0.7 })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    reply = data?.choices?.[0]?.message?.content;
+                    if (reply) break;
+                } else {
+                    console.error(`❌ [GROQ TEXT ${tModel} FAIL] Status: ${res.status}`);
+                }
             }
-        }
-        
-        if (!reply && mediaBuffer) {
-             reply = "❌ Vision error. Main ye dekh nahi pa raha abhi.";
         }
     } catch (err) {
         console.error("❌ [ROUTER ERROR]", err.message);
