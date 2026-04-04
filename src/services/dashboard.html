@@ -301,6 +301,36 @@
             font-weight: 500;
         }
 
+        .download-btn {
+            position: absolute !important;
+            top: 15px !important;
+            right: 15px !important;
+            width: 42px !important;
+            height: 42px !important;
+            background: rgba(0, 0, 0, 0.75) !important;
+            backdrop-filter: blur(12px) !important;
+            border: 1px solid var(--primary-cyan) !important;
+            border-radius: 50% !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            color: var(--primary-cyan) !important;
+            font-size: 1.3rem !important;
+            cursor: pointer !important;
+            z-index: 9999 !important;
+            transition: all 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1) !important;
+            text-decoration: none !important;
+            pointer-events: auto !important;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+        }
+
+        .download-btn:hover {
+            transform: scale(1.15) rotate(15deg) !important;
+            background: var(--primary-cyan) !important;
+            color: #000 !important;
+            box-shadow: 0 0 25px var(--primary-cyan);
+        }
+
         .media-attachment {
             margin-top: 16px;
             border-radius: 20px;
@@ -794,19 +824,19 @@
             } else if (mType === 'video' || mType === 'gif') {
                 mediaMarkup = `<div class="media-attachment" style="position:relative; border-radius:12px; overflow:hidden;">
                     <video src="${mUrl}" controls preload="metadata" style="max-height:350px; border-radius:12px; width:100%;"></video>
-                    <div style="position:absolute; top:10px; right:10px; z-index:10;">${dlBtn}</div>
+                    ${dlBtn}
                 </div>`;
             } else if (mType === 'audio') {
-                mediaMarkup = `<div class="media-attachment" style="padding:15px; background: rgba(0,242,254,0.05); border-radius:40px; border:1px solid var(--glass-border); display:flex; align-items:center;">
+                mediaMarkup = `<div class="media-attachment" style="position:relative; padding:15px; background: rgba(0,242,254,0.05); border-radius:40px; border:1px solid var(--glass-border); display:flex; align-items:center;">
                     <audio src="${mUrl}" controls style="width:240px; height:32px;"></audio>
-                    <a href="${mUrl}" download style="color:var(--primary-cyan); margin-left:15px; font-size:1.1rem;"><i class="fas fa-download"></i></a>
+                    <a href="${mUrl}" download class="download-btn" style="position:static; margin-left:15px;"><i class="fas fa-download"></i></a>
                 </div>`;
             } else {
                 mediaMarkup = `<div class="media-attachment" style="position:relative; padding:18px; background:rgba(255,255,255,0.03); border-radius:16px; border:1px solid var(--glass-border);">
                     <div style="display:flex; align-items:center;">
                         <i class="fas fa-file-invoice" style="color:var(--primary-cyan); font-size:1.4rem;"></i>
                         <span style="font-size:0.75rem; margin-left:12px; color:var(--text-muted)">Nexus Core Transfer</span>
-                        <a href="${mUrl}" download style="margin-left:auto; color:var(--primary-cyan);"><i class="fas fa-file-download"></i></a>
+                        <a href="${mUrl}" download class="download-btn" style="position:static; margin-left:auto;"><i class="fas fa-download"></i></a>
                     </div>
                 </div>`;
             }

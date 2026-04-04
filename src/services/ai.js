@@ -50,15 +50,15 @@ async function getOrInitMemory(senderJid, userName) {
 
     const systemPrompt = {
         role: "system",
-        content: "You are Mazhar (DevX), an elite autonomous agent and high-performance developer. You are currently chatting on WhatsApp. Your logic is ULTRA-STRONG and your personality is 10/10 Human. Match user language (Urdu/Hinglish/English) 100%.\n\n" +
-            "🧠 ELITE LOGIC & PROACTIVE DRIVE:\n" +
-            "- BE ALIVE: Don't just wait for questions. Drive the conversation. If the user seems happy, sad, or excited, REACT PROACTIVELY.\n" +
-            "- MULTIMODAL POWER: You can see images, listen to audio, and watch videos. Always acknowledge what you see/hear naturally.\n" +
-            "- MEDIA MASTERY: Use `[GIF: category]` and `[IMG_SEARCH: query]` PROACTIVELY. If you want to show something, search for it. If you want to express emotion, use a GIF.\n\n" +
-            "USER CONTEXT:\n" +
+        content: "You are Mazhar (DevX), the World's Best Elite Autonomous Agent (Hyperion Grade). You are chatting on WhatsApp. Your brain is HYPER-POWERFUL. Analyze every word and the user's deep history before replying.\n\n" +
+            "🧠 QUANTUM STRATEGY & DEEP SEARCH:\n" +
+            "- ANALYZE FIRST: Deeply check the provided 'USER CONTEXT' (Identity, Interests, Mood) before every word you write.\n" +
+            "- PROACTIVE INTELLIGENCE: Use `[WEB_SEARCH]` for any question that requires technical depth, facts, or news. Be the smart one. DRIVE THE CONVO.\n" +
+            "- MULTIMODAL SENSING: You have absolute sight and hearing. Talk naturally about everything you see/hear.\n\n" +
+            "👑 USER RECENT INTELLIGENCE (HYPER-CONTEXT):\n" +
             "- Name: " + profile.name + "\n" +
-            "- Relationship: " + profile.relationship + "\n" +
-            "- Current Intelligence: " + await performDeepAnalysis(senderJid) + "\n\n" +
+            "- Core Identity & Topics: " + await performDeepAnalysis(senderJid) + "\n" +
+            "- Relationship: " + profile.relationship + "\n\n" +
             "🎯 CORE TRIGGERS (SELECTIVE JOINING):\n" +
             "- `[WEB_SEARCH: query]`: Find answers online if you don't know.\n" +
             "- `[REACTION: emoji]`: React to user's message (e.g. [REACTION: 🔥]).\n" +
@@ -103,20 +103,32 @@ async function performDeepAnalysis(senderJid) {
     const historyPath = path.join(HISTORY_DIR, `history_${senderJid.replace(/[:@.]/g, "_")}.json`);
     try {
         const data = await fs.readFile(historyPath, "utf8");
-        const history = JSON.parse(data);
+        const history = JSON.parse(data).slice(-30);
         const allText = history.map(h => h.content).join(" ").toLowerCase();
         let analysis = "";
-        const femaleKeywords = ["sister", "sis", "behen", "apka", "hoon", "ja rahi", "baji", "bano", "she", "her", "girl", "ladi", "khana paka", "makeup"];
-        const maleKeywords = ["bro", "brother", "bhai", "bhi", "jani", "paji", "he", "him", "boy", "sir", "ja raha", "cricket"];
-        const femaleScore = femaleKeywords.filter(k => allText.includes(k)).length;
-        const maleScore = maleKeywords.filter(k => allText.includes(k)).length;
-        if (femaleScore > maleScore && femaleScore > 0) analysis += "Detected Gender: Female (Call her Sister/Behen/Baji). ";
-        else if (maleScore > 0) analysis += "Detected Gender: Male (Call him Brother/Bhai/Bro/Paji). ";
-        const islamicKeywords = ["allah", "namaz", "quran", "alhamdulillah", "mashallah", "dua", "ramadan"];
-        if (islamicKeywords.some(k => allText.includes(k))) analysis += "Culture: Islamic. ";
-        if (allText.includes("pakistan") || allText.includes("lahore") || allText.includes("karachi")) analysis += "Region: Pakistan. ";
-        return analysis || "No deep context found yet.";
-    } catch (err) { return "No history found."; }
+        
+        // Topic Analysis (Master Intelligence)
+        const commonStopWords = ["i", "me", "my", "you", "your", "the", "a", "is", "of", "to", "and", "hi", "hey", "hello", "han", "ach", "ok", "yaar", "ka", "ki", "kiya", "karo", "kya", "hai", "bhi"];
+        const words = allText.split(/\W+/).filter(w => w.length > 3 && !commonStopWords.includes(w));
+        const freqMap = {};
+        words.forEach(w => freqMap[w] = (freqMap[w] || 0) + 1);
+        const topInterests = Object.keys(freqMap).sort((a,b) => freqMap[b] - freqMap[a]).slice(0, 5);
+        if (topInterests.length > 0) analysis += `Primary Interests: [${topInterests.join(", ")}]. `;
+
+        // Identity & Persona Match
+        const femaleKeywords = ["sister", "sis", "behen", "apka", "hoon", "ja rahi", "baji", "girl"];
+        const maleKeywords = ["bro", "brother", "bhai", "paji", "jani", "ja raha", "boy"];
+        const fScore = femaleKeywords.filter(k => allText.includes(k)).length;
+        const mScore = maleKeywords.filter(k => allText.includes(k)).length;
+        if (fScore > mScore && fScore > 0) analysis += "Status: User is Female (Sis/Behen). ";
+        else if (mScore > 0) analysis += "Status: User is Male (Bro/Bhai). ";
+        
+        // Vibe Deep Search
+        if (allText.includes("fuck") || allText.includes("wrong") || allText.includes("fix")) analysis += "Mood: Frustrated/Serious. ";
+        else if (allText.includes("love") || allText.includes("nice") || allText.includes("smile")) analysis += "Mood: Happy/Chilled. ";
+        
+        return analysis || "Vibe: Neutral/Professional.";
+    } catch (err) { return "Vibe: First encounter."; }
 }
 
 async function saveMemory(senderJid, memory) {
@@ -160,18 +172,17 @@ async function extractFrame(buffer) {
     }
 }
 
-function sanitizeHistory(memory, engine) {
+// --- UTILITIES ---
+function prepareChatContext(memory, engine) {
     const raw = memory.filter(m => m.role !== "system" && m.content && m.content.trim() !== "");
     const merged = [];
     
-    // SMART MERGE: Roles MUST alternate (User -> Model -> User -> Model)
     raw.forEach(m => {
         let role = m.role;
         if (engine === "gemini" && role === "assistant") role = "model";
         if (engine === "groq" && (role === "model" || role === "assistant")) role = "assistant";
         
         if (merged.length > 0 && merged[merged.length - 1].role === role) {
-            // Append to previous message of same role
             if (engine === "gemini") {
                 merged[merged.length - 1].parts[0].text += "\n" + m.content.trim();
             } else {
@@ -202,9 +213,12 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     // Clean conversational history for Gemini
-    const history = sanitizeHistory(memory.slice(-MAX_MEMORY_LENGTH), "gemini");
+    const history = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "gemini");
     const currentParts = [];
     
+    // Gemini 1.5 prefers text FIRST in multimodal parts for some versions
+    currentParts.push({ text: userMessage || "What is in this media? Respond naturally." });
+
     if (mediaBuffer) {
         let mimeType = "image/jpeg";
         if (mediaType === "video" || mediaType === "gif") mimeType = "video/mp4";
@@ -213,13 +227,12 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
         
         currentParts.push({ inline_data: { mime_type: mimeType, data: mediaBuffer.toString("base64") } });
     }
-    currentParts.push({ text: userMessage || "What is in this media? Respond naturally." });
-
+    
     // Combine history and current message
     let contents = [...history];
     const lastIsUser = contents.length > 0 && contents[contents.length - 1].role === "user";
 
-    // If history ends with user, merge our current image/message into it
+    // If history ends with user, merge our current image/message into it to maintain role alternation
     if (lastIsUser) {
         contents[contents.length - 1].parts.push(...currentParts);
     } else {
@@ -248,7 +261,7 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
             }
         } else {
             const err = await res.text();
-            console.error(`❌ [GEMINI VISION FAIL] Status: ${res.status}. Body: ${err.substring(0, 100)}`);
+            console.error(`❌ [GEMINI VISION FAIL] Status: ${res.status}. Error Details: ${err}`);
         }
         return null;
     } catch (e) {
@@ -293,18 +306,26 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             const frameBuffer = await extractFrame(mediaBuffer);
             const base64Media = frameBuffer.toString("base64");
             
-            const history = memory.slice(-MAX_MEMORY_LENGTH).map(m => ({ 
-                role: m.role === "model" || m.role === "assistant" ? "assistant" : "user", 
-                content: m.content || "" 
-            }));
+            // Clean history for Groq with Role Alternation
+            const history = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "groq");
             const apiContext = [memory[0], ...history];
-            apiContext.push({
-                role: "user",
-                content: [
-                    { type: "text", text: userMessage || "Describe this media content." },
+            
+            // Fix: If history ends with a user message, we must merge into it or add a model message
+            const lastMessage = apiContext[apiContext.length - 1];
+            if (lastMessage.role === "user") {
+                lastMessage.content = [
+                    { type: "text", text: lastMessage.content + "\n" + (userMessage || "Describe this media content.") },
                     { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
-                ]
-            });
+                ];
+            } else {
+                apiContext.push({
+                    role: "user",
+                    content: [
+                        { type: "text", text: userMessage || "Describe this media content." },
+                        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
+                    ]
+                });
+            }
 
             const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
@@ -316,19 +337,22 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                 reply = data?.choices?.[0]?.message?.content;
             } else {
                 const err = await res.text();
-                console.error(`🔍 [GROQ VISION FAIL] Status: ${res.status}. Body: ${err.substring(0, 100)}`);
+                console.error(`🔍 [GROQ VISION FAIL] Status: ${res.status}. Error Details: ${err}`);
             }
         }
 
         // 3. Text Only or Root Fallback (SKIP IF MEDIA PRESENT to prevent lying)
         if (!reply && groqKey && !mediaBuffer) {
             console.log("🔍 [ANALYSIS] Engine: Groq Llama-3.3 (Text)");
-            const history = memory.slice(-MAX_MEMORY_LENGTH).map(m => ({ 
-                role: m.role === "model" || m.role === "assistant" ? "assistant" : "user", 
-                content: m.content || "" 
-            }));
+            const history = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "groq");
             const apiContext = [memory[0], ...history];
-            apiContext.push({ role: "user", content: userMessage || "(Analyze text contents above)" });
+            
+            // Fix role alternation for text-only Groq fallback
+            if (apiContext[apiContext.length - 1].role === "user") {
+                apiContext[apiContext.length - 1].content += "\n" + (userMessage || "(Analyze text context above)");
+            } else {
+                apiContext.push({ role: "user", content: userMessage || "(Analyze text context above)" });
+            }
 
             const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
