@@ -11,6 +11,93 @@ const userStats = {};
 const userMediaStats = {};
 const userPresences = {};
 
+/** Mood menu: awaiting *1* / *2* / *3* reply (private chats). */
+const FEELING_TTL_MS = 35 * 60 * 1000;
+const FEELING_COOLDOWN_MS = 90 * 60 * 1000;
+const pendingFeelingByJid = new Map();
+const lastFeelingPromptAt = new Map();
+
+function detectFeelingLangFromHint(hint) {
+    const h = hint || "";
+    if (/Urdu\/Arabic script/i.test(h)) return "ur_ar";
+    if (/\*\*Roman Urdu\*\*/i.test(h)) return "roman";
+    if (/high-level native English/i.test(h)) return "en";
+    return "bilingual";
+}
+
+function buildFeelingMenu(langKey) {
+    if (langKey === "ur_ar") {
+        return (
+            "ابھی آپ *کیسا محسوس* کر رہے ہیں؟\n\n" +
+            "*1* — اچھا نہیں / اداس یا پریشان\n" +
+            "*2* — ٹھیک / معمول\n" +
+            "*3* — بہت اچھا / زبردست"
+        );
+    }
+    if (langKey === "roman") {
+        return (
+            "Abhi *kaisa feel* ho raha hai?\n\n" +
+            "*1* — Kharab / low mood\n" +
+            "*2* — Theek / okay\n" +
+            "*3* — Bohot acha / great"
+        );
+    }
+    if (langKey === "en") {
+        return (
+            "How are you *feeling* right now?\n\n" +
+            "*1* — Not great / low\n" +
+            "*2* — Okay / good\n" +
+            "*3* — Great / very good"
+        );
+    }
+    return (
+        "How are you *feeling*? / Abhi *kaisa mood* hai?\n\n" +
+        "*1* — Not great · low / kharab\n" +
+        "*2* — Okay · good · theek\n" +
+        "*3* — Great · very good · sorted"
+    );
+}
+
+function defaultFeelingIntro(langKey) {
+    if (langKey === "ur_ar") return "بس یہ پوچھنا تھا۔";
+    if (langKey === "roman") return "Bas ek choti si baat puchni thi yaar.";
+    if (langKey === "en") return "Quick check-in from my side.";
+    return "Quick check-in / choti si baat.";
+}
+
+function attachFeelingSuffix(base, suffix, langKey) {
+    const b = (base || "").trim();
+    if (!suffix) return b;
+    if (!b) return defaultFeelingIntro(langKey) + suffix;
+    return b + suffix;
+}
+
+function parseFeelingChoice(raw) {
+    const t = String(raw || "")
+        .replace(/\*/g, "")
+        .trim()
+        .toLowerCase();
+    if (!t) return null;
+    if (/\bnot\s+bad\b|\bnot\s+so\s+bad\b/i.test(t)) return 2;
+    if (/^1\b|^one\b/i.test(t)) return 1;
+    if (/^2\b|^two\b/i.test(t)) return 2;
+    if (/^3\b|^three\b/i.test(t)) return 3;
+    if (
+        /\b(great|excellent|amazing|perfect|awesome|fantastic|blessed|lit|fire|sorted|zabardast|bohot acha|bohot achha|mast|very good)\b/i.test(t)
+    ) {
+        return 3;
+    }
+    if (
+        /\b(bad|awful|terrible|worst|depress|hopeless|kharab|bura|udaas|udas|pareshan|gussa|cry|crying|broken|tired of life)\b/i.test(t)
+    ) {
+        return 1;
+    }
+    if (/\b(okay|ok\b|fine|good|well|alright|theek|thik|acha|achha|chill|better|normal|meh)\b/i.test(t)) {
+        return 2;
+    }
+    return null;
+}
+
 // Categories for proactive GIFs (mapped to waifu.pics)
 const GIF_CATEGORIES = ["smile", "wave", "happy", "dance", "laugh", "hug", "wink", "pat", "bonk", "yeet", "bully", "slap", "kill", "cringe", "cuddle", "cry"];
 const profilePicCache = new Map(); // Simple cache for avatars
@@ -322,6 +409,26 @@ async function handleMessage(sock, msg) {
             return;
         }
 
+        // --- MOOD MENU: reply *1* / *2* / *3* (private only) ---
+        if (!isGroup && pendingFeelingByJid.has(jid)) {
+            const exp = pendingFeelingByJid.get(jid);
+            if (Date.now() > exp) {
+                pendingFeelingByJid.delete(jid);
+            } else {
+                const choice = parseFeelingChoice(prompt || text);
+                if (choice != null) {
+                    pendingFeelingByJid.delete(jid);
+                    const labels = { 1: "not great / low", 2: "okay / good", 3: "great / very good" };
+                    prompt = `I'm answering your mood check-in: I'm feeling *${labels[choice]}* (option ${choice} of 3). Reply briefly in my language — warm and real. Do not use [FEELING_CHECK] or another mood menu.`;
+                } else if (String(text || prompt || "").trim().length > 0) {
+                    await safeSendMessage(sock, jid, {
+                        text: "Just reply with *1*, *2*, or *3* (rough · okay · great). / صرف *1*، *2*، یا *3* بھیجیں۔"
+                    });
+                    return;
+                }
+            }
+        }
+
         // Strip mention if it exists
         const hasVisualMedia =
             mediaTypes.includes(msgType) &&
@@ -382,6 +489,8 @@ async function handleMessage(sock, msg) {
 
         console.log(`💎 [AI-BRAIN] Raw: ${String(aiReply).substring(0, 50)}...`);
 
+        let feelingMenuSuffix = null;
+        let feelingMenuLangKey = null;
 
         // --- MULTIPLE AGENTIC TRIGGERS ---
         // 0. GLOBAL MEMORY RESET
@@ -434,6 +543,31 @@ async function handleMessage(sock, msg) {
             }
         }
 
+        // --- MOOD CHECK-IN tag (after research branch — avoids losing menu on mixed tags) ---
+        if (/\[FEELING_CHECK\]/i.test(aiReply || "")) {
+            if (isGroup) {
+                aiReply = aiReply.replace(/\[FEELING_CHECK\]/gi, "").trim();
+            } else {
+                const lastShow = lastFeelingPromptAt.get(jid) || 0;
+                if (Date.now() - lastShow < FEELING_COOLDOWN_MS) {
+                    aiReply = aiReply.replace(/\[FEELING_CHECK\]/gi, "").trim();
+                } else {
+                    const lh0 = buildLanguageHint(prompt + rawText);
+                    feelingMenuLangKey = detectFeelingLangFromHint(lh0);
+                    feelingMenuSuffix =
+                        "\n\n─────────────\n" +
+                        buildFeelingMenu(feelingMenuLangKey) +
+                        "\n\n_Reply *1*, *2*, or *3*_";
+                    lastFeelingPromptAt.set(jid, Date.now());
+                    pendingFeelingByJid.set(jid, Date.now() + FEELING_TTL_MS);
+                    aiReply = aiReply.replace(/\[FEELING_CHECK\]/gi, "").trim();
+                }
+            }
+        }
+
+        const feelingLangForSend =
+            feelingMenuLangKey || detectFeelingLangFromHint(buildLanguageHint(prompt + rawText));
+
         // 2. REACTION
         const reactionMatch = aiReply.match(/\[REACTION:\s*(.*?)\]/i);
         if (reactionMatch) {
@@ -447,14 +581,15 @@ async function handleMessage(sock, msg) {
         let assistantTextSent = false;
 
         if (wantsTextBeforeMedia) {
-            console.log(`✅ [SYSTEM] Text-first (before GIF/image): ${finalCleanReply.substring(0, 40)}...`);
-            await safeSendMessage(sock, jid, { text: finalCleanReply }, { quoted: msg });
-            events.emit("ai_reply", { text: finalCleanReply, jid: jid });
+            const outEarly = attachFeelingSuffix(finalCleanReply, feelingMenuSuffix, feelingLangForSend);
+            console.log(`✅ [SYSTEM] Text-first (before GIF/image): ${outEarly.substring(0, 40)}...`);
+            await safeSendMessage(sock, jid, { text: outEarly }, { quoted: msg });
+            events.emit("ai_reply", { text: outEarly, jid: jid });
             assistantTextSent = true;
             const { getMemory, saveMemory } = require("../services/ai");
             const historyEarly = await getMemory(jid);
             if (historyEarly.length && historyEarly[historyEarly.length - 1].role === "assistant") {
-                historyEarly[historyEarly.length - 1].content = finalCleanReply;
+                historyEarly[historyEarly.length - 1].content = outEarly;
                 await saveMemory(jid, historyEarly);
             }
         }
@@ -577,15 +712,16 @@ async function handleMessage(sock, msg) {
         // --- UNIVERSAL TAG STRIPPER (FINAL PASS) ---
         finalCleanReply = aiReply.replace(/\[[\s\S]*?\]/g, "").replace(/\n{2,}/g, "\n").trim();
 
-        if (finalCleanReply && !assistantTextSent) {
-            console.log(`✅ [SYSTEM] Sending final clean reply: ${finalCleanReply.substring(0, 30)}...`);
-            await safeSendMessage(sock, jid, { text: finalCleanReply }, { quoted: msg });
-            events.emit("ai_reply", { text: finalCleanReply, jid: jid });
+        if ((finalCleanReply || feelingMenuSuffix) && !assistantTextSent) {
+            const outFinal = attachFeelingSuffix(finalCleanReply, feelingMenuSuffix, feelingLangForSend);
+            console.log(`✅ [SYSTEM] Sending final clean reply: ${outFinal.substring(0, 30)}...`);
+            await safeSendMessage(sock, jid, { text: outFinal }, { quoted: msg });
+            events.emit("ai_reply", { text: outFinal, jid: jid });
 
             const { getMemory, saveMemory } = require("../services/ai");
             const history = await getMemory(jid);
             if (history.length && history[history.length - 1].role === "assistant") {
-                history[history.length - 1].content = finalCleanReply;
+                history[history.length - 1].content = outFinal;
                 await saveMemory(jid, history);
             }
         }
