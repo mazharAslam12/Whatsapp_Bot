@@ -211,11 +211,13 @@ async function transcribeVoice(buffer) {
 // --- UTILITIES ---
 async function extractFrame(buffer, mediaType) {
     if (mediaType === "video" || mediaType === "gif") return null; // sharp can't process mp4 without native deps/ffmpeg easily
+    if (!buffer || !(Buffer.isBuffer(buffer) || buffer instanceof Uint8Array)) return null;
+    const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+    if (!buf.length) return null;
     try {
-        // Resize to tiny resolution to bypass Groq Base64 size limits
-        return await sharp(buffer, { animated: true }).resize(512, 512, { fit: 'inside' }).toFormat("jpeg", { quality: 50 }).toBuffer();
+        return await sharp(buf, { animated: true }).resize(512, 512, { fit: "inside" }).toFormat("jpeg", { quality: 50 }).toBuffer();
     } catch (e) {
-        return buffer; // Fallback to original
+        return buf;
     }
 }
 
@@ -274,10 +276,13 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errors
 
     if (mediaBuffer) {
         let mimeType = "image/jpeg";
-        if (mediaType === "video" || mediaType === "gif") mimeType = "video/mp4";
-        else if (mediaType === "audio") mimeType = "audio/ogg"; 
+        if (mediaType === "video") mimeType = "video/mp4";
+        else if (mediaType === "gif") {
+            const sig = mediaBuffer.subarray(0, 4).toString("ascii");
+            mimeType = sig === "GIF8" ? "image/gif" : "video/mp4";
+        } else if (mediaType === "audio") mimeType = "audio/ogg";
         else if (mediaType === "sticker") mimeType = "image/webp";
-        
+
         currentParts.push({ inline_data: { mime_type: mimeType, data: mediaBuffer.toString("base64") } });
     }
     
@@ -333,7 +338,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
         if (now < stopAiStatus.get(senderJid)) return null;
         else stopAiStatus.delete(senderJid);
     }
-    if (userMessage.toLowerCase() === "resume") {
+    if ((userMessage || "").toLowerCase().trim() === "resume") {
         stopAiStatus.delete(senderJid);
         return "🔊 AI Response Phir se start hai yaar! Main hazir hoon. 🚀";
     }
@@ -395,6 +400,16 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                 }
             } else {
                 errorsList.push(`Groq Vision: No viable buffer/thumbnail`);
+            }
+        }
+
+        // Thumbnail-only fallback when full download failed (e.g. Groq disabled, Gemini only)
+        if (!reply && !mediaBuffer && mediaThumbnail && geminiKey) {
+            let thumbBuf = mediaThumbnail;
+            if (!Buffer.isBuffer(thumbBuf)) thumbBuf = Buffer.from(thumbBuf);
+            if (thumbBuf.length) {
+                console.log("🔍 [ANALYSIS] Engine: Gemini (jpeg thumbnail only)");
+                reply = await geminiAiReply(userMessage, memory, thumbBuf, "image", errorsList);
             }
         }
 

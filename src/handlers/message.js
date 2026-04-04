@@ -132,33 +132,59 @@ async function handleMessage(sock, msg) {
         let mediaType = null;
         let mediaData = null;
         let mediaThumbnail = content[msgType]?.jpegThumbnail || null; // Instant Whatsapp Preview
+        if (mediaThumbnail && !Buffer.isBuffer(mediaThumbnail)) {
+            mediaThumbnail = Buffer.from(mediaThumbnail);
+        }
 
         const mediaTypes = ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "stickerMessage"];
         if (mediaTypes.includes(msgType)) {
+            mediaType = msgType.replace("Message", "");
+            if (msgType === "videoMessage" && content.videoMessage?.gifPlayback) {
+                mediaType = "gif";
+            }
+            if (msgType === "documentMessage" && content.documentMessage?.mimetype) {
+                const mt = content.documentMessage.mimetype.toLowerCase();
+                if (mt.includes("gif")) mediaType = "gif";
+                else if (mt.startsWith("image/")) mediaType = "image";
+                else if (mt.startsWith("video/")) mediaType = "video";
+            }
+
             try {
-                mediaBuffer = await downloadMediaMessage(msg, "buffer", {}, { logger: { level: "silent" } });
+                const downloadOpts = {
+                    logger: { level: "silent" },
+                    ...(typeof sock.updateMediaMessage === "function"
+                        ? { reuploadRequest: sock.updateMediaMessage }
+                        : {})
+                };
+                mediaBuffer = await downloadMediaMessage(msg, "buffer", {}, downloadOpts);
                 if (mediaBuffer) {
                     console.log(`✅ [SYSTEM] Media Downloaded: ${msgType} (${mediaBuffer.length} bytes)`);
                 } else {
                     console.warn(`⚠️ [SYSTEM] Media Download FAILED for ${msgType}. Relying on Thumbnail.`);
                 }
-                
-                mediaType = msgType.replace("Message", "");
-                
-                // Detect GIFs specifically (Baileys sends them as videoMessage with gifPlayback: true)
-                if (msgType === "videoMessage" && content.gifPlayback) {
-                    mediaType = "gif";
-                }
-
-                const extensionMap = { image: "jpg", video: "mp4", audio: "mp3", document: "bin", sticker: "webp", gif: "gif" };
-                const extension = extensionMap[mediaType] || "bin";
-                
-                const fileName = `media_${Date.now()}.${extension}`;
-                const filePath = path.join(FILE_BASE_DIR, fileName);
-                await fs.writeFile(filePath, mediaBuffer);
-                mediaData = { type: mediaType, url: `/media/${fileName}` };
             } catch (e) {
                 console.error("❌ [MEDIA DOWNLOAD ERROR]", e.message);
+            }
+
+            try {
+                const extensionMap = { image: "jpg", video: "mp4", audio: "mp3", document: "bin", sticker: "webp", gif: "gif" };
+                const extension = extensionMap[mediaType] || "bin";
+
+                if (mediaBuffer && mediaBuffer.length) {
+                    await fs.mkdir(FILE_BASE_DIR, { recursive: true });
+                    const fileName = `media_${Date.now()}.${extension}`;
+                    const filePath = path.join(FILE_BASE_DIR, fileName);
+                    await fs.writeFile(filePath, mediaBuffer);
+                    mediaData = { type: mediaType, url: `/media/${fileName}` };
+                } else if (mediaThumbnail && mediaThumbnail.length) {
+                    await fs.mkdir(FILE_BASE_DIR, { recursive: true });
+                    const fileName = `media_thumb_${Date.now()}.jpg`;
+                    const filePath = path.join(FILE_BASE_DIR, fileName);
+                    await fs.writeFile(filePath, mediaThumbnail);
+                    mediaData = { type: mediaType || "image", url: `/media/${fileName}`, previewOnly: true };
+                }
+            } catch (e) {
+                console.error("❌ [MEDIA FILE SAVE ERROR]", e.message);
             }
         }
 
@@ -342,17 +368,40 @@ async function handleMessage(sock, msg) {
             const { getGif } = require("../services/gif");
             const category = gifMatch[1].toLowerCase();
             const gifData = await getGif(category);
-            
+
             if (gifData && gifData.url) {
-                // gifData.isMp4 tells us if it's natively an MP4 video or a webp/gif
-                await safeSendMessage(sock, jid, { video: { url: gifData.url }, gifPlayback: true });
-                
-                // Persistent History Fix
-                const { getMemory, saveMemory } = require("../services/ai");
-                const history = await getMemory(jid);
-                if (history.length && history[history.length - 1].role === "assistant") {
-                    history[history.length - 1].media = { type: "gif", url: gifData.url };
-                    await saveMemory(jid, history);
+                try {
+                    const mediaRes = await fetch(gifData.url, { redirect: "follow" });
+                    if (!mediaRes.ok) throw new Error(`HTTP ${mediaRes.status}`);
+                    const bodyBuf = Buffer.from(await mediaRes.arrayBuffer());
+                    const urlLower = gifData.url.toLowerCase();
+                    const ct = (mediaRes.headers.get("content-type") || "").toLowerCase();
+                    const looksMp4 = gifData.isMp4 || urlLower.includes(".mp4") || ct.includes("video/mp4");
+                    const looksWebm = urlLower.includes(".webm") || ct.includes("webm");
+
+                    if (looksMp4 || looksWebm) {
+                        await safeSendMessage(sock, jid, {
+                            video: bodyBuf,
+                            mimetype: looksWebm ? "video/webm" : "video/mp4",
+                            gifPlayback: true
+                        });
+                    } else {
+                        // Static PNG/JPEG/WebP from fallbacks — send as image (WhatsApp rejects many as fake "GIF" video)
+                        let mime = "image/jpeg";
+                        if (ct.includes("png") || urlLower.includes(".png")) mime = "image/png";
+                        else if (ct.includes("webp") || urlLower.includes(".webp")) mime = "image/webp";
+                        else if (ct.includes("gif") || urlLower.includes(".gif")) mime = "image/gif";
+                        await safeSendMessage(sock, jid, { image: bodyBuf, mimetype: mime, caption: "🔥" });
+                    }
+
+                    const { getMemory, saveMemory } = require("../services/ai");
+                    const history = await getMemory(jid);
+                    if (history.length && history[history.length - 1].role === "assistant") {
+                        history[history.length - 1].media = { type: "gif", url: gifData.url };
+                        await saveMemory(jid, history);
+                    }
+                } catch (e) {
+                    console.error("❌ GIF fetch/send failed:", e.message);
                 }
             }
         }

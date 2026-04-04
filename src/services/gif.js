@@ -17,14 +17,44 @@ async function getGif(query) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000); // 10s strict timeout
 
-    // --- [v53.0 TRUE MP4 GIF INTEGRATION] ---
-    // SOURCE 0: Tenor API (Native MP4 GIFs)
+    // SOURCE 0a: Tenor Google API v2 (set TENOR_API_KEY in .env — recommended; v1 often rate-limits)
+    const tenorGoogleKey = process.env.TENOR_API_KEY || process.env.GOOGLE_TENOR_KEY;
+    if (tenorGoogleKey) {
+        try {
+            const v2Url = `https://tenor.googleapis.com/v2/search?${new URLSearchParams({
+                q: category,
+                key: tenorGoogleKey,
+                limit: "12",
+                media_filter: "tinygif,tinywebm,nanomp4"
+            })}`;
+            const tenorRes = await fetch(v2Url, { signal: controller.signal });
+            if (tenorRes.ok) {
+                const data = await tenorRes.json();
+                const results = data.results || [];
+                if (results.length > 0) {
+                    const pick = results[Math.floor(Math.random() * Math.min(5, results.length))];
+                    const fmt = pick.media_formats || {};
+                    const mp4 = fmt.nanomp4 || fmt.mp4 || fmt.tinywebm || fmt.webm;
+                    const url = mp4?.url || fmt.gif?.url || fmt.tinygif?.url;
+                    if (url) {
+                        const isMp4 = /\.mp4(\?|$)/i.test(url) || (mp4 && /mp4/i.test(mp4.url || ""));
+                        console.log(`✅ [GIF] Tenor v2: ${url}`);
+                        clearTimeout(timeout);
+                        return { url, isMp4: !!isMp4 };
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn("⚠️ [GIF] Tenor v2 failed, trying legacy v1...");
+        }
+    }
+
+    // SOURCE 0b: Tenor legacy v1 (public demo key — may fail)
     try {
-        console.log("📡 [GIF] Fetching from Tenor API (MP4)...");
-        // Using a public Tenor API key for search
+        console.log("📡 [GIF] Fetching from Tenor API v1 (MP4)...");
         const tenorParams = new URLSearchParams({
             q: category,
-            key: "LIVDSRZULELA", // Common public Tenor Key
+            key: "LIVDSRZULELA",
             limit: "10"
         });
         const tenorRes = await fetch(`https://api.tenor.com/v1/search?${tenorParams}`, { signal: controller.signal });
