@@ -239,26 +239,86 @@ async function handleMessage(sock, msg) {
         console.log(`💎 [AI-BRAIN] Raw: ${aiReply.substring(0, 50)}...`);
 
 
-        // --- TRIGGER EXECUTION ENGINE (SEQUENTIAL POWER) ---
-        // 1. REACTION
+        // --- MULTIPLE AGENTIC TRIGGERS ---
+        // 0. GLOBAL MEMORY RESET
+        if (aiReply.includes("[GLOBAL_MEMORY_RESET]")) {
+            const { getMemory, saveMemory } = require("../services/ai");
+            await saveMemory(jid, []);
+            console.log(`♻️ [SYSTEM] Global Memory Reset triggered for ${jid}`);
+            aiReply = aiReply.replace(/\[GLOBAL_MEMORY_RESET\]/g, "").trim();
+        }
+
+        // 1. DEEP RESEARCH (The Intelligent Core)
+        if (aiReply.includes("[DEEP_RESEARCH:")) {
+            const match = aiReply.match(/\[DEEP_RESEARCH:\s*(.*?)\]/i);
+            if (match) {
+                const query = match[1].trim();
+                const { performResearch } = require("../services/search");
+                console.log(`📡 [RESEARCH] ${query}`);
+
+                const researchResult = await performResearch(query);
+                const webReport = researchResult.web.map(r => `- ${r.title}: ${r.url}`).join("\n");
+                const researchPrompt = `Translate and explain this info briefly, casually, and naturally in your persona. Match the user's language: ${webReport}`;
+
+                const synthesis = await mazharAiReply(researchPrompt, jid, "System_Research");
+                await safeSendMessage(sock, jid, { text: synthesis.trim() });
+
+                // Image Fetching logic
+                if (researchResult.images.length > 0) {
+                    for (const imgUrl of researchResult.images) {
+                        try {
+                            const imgRes = await fetch(imgUrl);
+                            if (imgRes.ok) {
+                                const buffer = Buffer.from(await imgRes.arrayBuffer());
+                                await safeSendMessage(sock, jid, {
+                                    image: buffer,
+                                    caption: `🖼️ Research Image\n🔗 Source: ${imgUrl}` 
+                                });
+                                break; 
+                            }
+                        } catch (err) {
+                            console.warn("⚠️ [RESEARCH] Skipping broken image URL:", imgUrl);
+                        }
+                    }
+                }
+
+                if (researchResult.video && researchResult.video.length > 0) {
+                    const topVid = researchResult.video[0];
+                    await safeSendMessage(sock, jid, { text: `🎬 *Video Found:* ${topVid.url}` });
+                }
+                return; // STOP execution of other triggers
+            }
+        }
+
+        // 2. REACTION
         const reactionMatch = aiReply.match(/\[REACTION:\s*(.*?)\]/i);
         if (reactionMatch) {
             await safeSendMessage(sock, jid, { react: { text: reactionMatch[1], key: msg.key } });
         }
 
-        // 2. MEDIA TRIGGERS (Images, GIFs, Songs, Web Search)
+        // 3. MEDIA TRIGGERS
         const imgMatch = aiReply.match(/\[IMG_SEARCH:\s*(.*?)\]/i);
         if (imgMatch) {
             const { searchWebImages } = require("../services/search");
             const urls = await searchWebImages(imgMatch[1], 1);
             if (urls?.[0]) {
-                await safeSendMessage(sock, jid, { image: { url: urls[0] }, caption: "💎 Mazhar DevX Discovery" });
-                // Save to memory
-                const { getMemory, saveMemory } = require("../services/ai");
-                const history = await getMemory(jid);
-                if (history.length && history[history.length - 1].role === "assistant") {
-                    history[history.length - 1].media = { type: "image", url: urls[0] };
-                    await saveMemory(jid, history);
+                try {
+                    // Buffer level fetch for max reliability
+                    const imgRes = await fetch(urls[0]);
+                    if (imgRes.ok) {
+                        const buffer = Buffer.from(await imgRes.arrayBuffer());
+                        await safeSendMessage(sock, jid, { image: buffer, caption: "💎 Mazhar DevX Discovery" });
+                        
+                        // Save to memory
+                        const { getMemory, saveMemory } = require("../services/ai");
+                        const history = await getMemory(jid);
+                        if (history.length && history[history.length - 1].role === "assistant") {
+                            history[history.length - 1].media = { type: "image", url: urls[0] };
+                            await saveMemory(jid, history);
+                        }
+                    }
+                } catch (e) {
+                    console.error("❌ Image buffer fetch fail:", e.message);
                 }
             }
         }
@@ -303,6 +363,15 @@ async function handleMessage(sock, msg) {
                 const audioBuffer = await searchAudio(songMatch[1]);
                 await safeSendMessage(sock, jid, { audio: audioBuffer, mimetype: "audio/mp4", ptt: false });
             } catch (e) { console.error("❌ Song trigger fail:", e.message); }
+        }
+
+        const videoMatch = aiReply.match(/\[VIDEO_DOWNLOAD:\s*(.*?)\]/i);
+        if (videoMatch) {
+            try {
+                const { searchVideo } = require("../services/search");
+                const vidBuffer = await searchVideo(videoMatch[1]);
+                await safeSendMessage(sock, jid, { video: vidBuffer, mimetype: "video/mp4" });
+            } catch (e) { console.error("❌ Video trigger fail:", e.message); }
         }
 
         const ownerPhotoMatch = aiReply.match(/\[TRIGGER_SEND_REAL_OWNER_PHOTO\]/i);
