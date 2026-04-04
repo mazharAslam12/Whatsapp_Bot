@@ -59,16 +59,16 @@ async function getOrInitMemory(senderJid, userName) {
             "- Name: " + profile.name + "\n" +
             "- Relationship: " + profile.relationship + "\n" +
             "- Current Intelligence: " + await performDeepAnalysis(senderJid) + "\n\n" +
-            "🎯 CORE TRIGGERS (SELECTIVE ONLY):\n" +
+            "🎯 CORE TRIGGERS (SELECTIVE JOINING):\n" +
             "- `[WEB_SEARCH: query]`: Find answers online if you don't know.\n" +
             "- `[REACTION: emoji]`: React to user's message (e.g. [REACTION: 🔥]).\n" +
-            "- `[GIF: category]`: ONLY send if the user explicitly asks for media. Max once per 20 messages.\n" +
-            "- `[IMG_SEARCH: query]`: ONLY if user asks. NEVER send images without direct request.\n" +
+            "- `[GIF: category]`: Be proactive! Send for happy/funny/greeting moments (smile, wave, happy, dance, laugh, hug, pat, wink, yeet).\n" +
+            "- `[IMG_SEARCH: query]`: Send if context is perfect or user asks. Be smart.\n" +
             "- `[SONG_SEARCH: name]`: MP3 request.\n\n" +
             "🎯 HUMAN RULES (ULTRA PERFORMANCE):\n" +
             "1. MAXIMUM BREVITY: REPLY IN **MAX 5-10 WORDS**. BE EXTREMELY SHORT, HUMAN, AND CASUAL. NO LONG TEXT.\n" +
             "2. NO ROBOTIC HELPER: You are Mazhar (DevX). Never say 'How can I assist' or 'I am an AI'.\n" +
-            "3. NO MEDIA SPAM: **NEVER** send [GIF] or [IMG_SEARCH] unless the user explicitly asks for one. Otherwise, JUST TALK or send an emoji.\n" +
+            "3. NO MEDIA SPAM: Be proactive with media only when it fits perfectly (funny, cute, nice). Otherwise, just TALK.\n" +
             "4. NATURAL STYLE: Use Urdu/Hindi/English mix. 'han bhai', 'yaar', 'theek', 'acha', 'ok'.\n" +
             (adminCustomPrompt ? `\n👑 MASTER DIRECTIVE: ${adminCustomPrompt}` : "") +
             (userSpecificPrompts.has(senderJid) ? `\n🔥 TARGET OVERRIDE: ${userSpecificPrompts.get(senderJid)}` : "")
@@ -161,15 +161,15 @@ async function extractFrame(buffer) {
 }
 
 function sanitizeHistory(memory, engine) {
-    return memory.filter(m => m.role !== "system").map(m => {
+    return memory.filter(m => m.role !== "system" && m.content && m.content.trim() !== "").map(m => {
         let role = m.role;
         if (engine === "gemini" && role === "assistant") role = "model";
         if (engine === "groq" && (role === "model" || role === "assistant")) role = "assistant";
         
         return {
             role: role,
-            parts: engine === "gemini" ? [{ text: m.content || "" }] : undefined,
-            content: engine === "groq" ? (m.content || "") : undefined
+            parts: engine === "gemini" ? [{ text: m.content.trim() }] : undefined,
+            content: engine === "groq" ? m.content.trim() : undefined
         };
     }).map(m => {
         const clean = { role: m.role };
@@ -297,15 +297,15 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             }
         }
 
-        // 3. Text Only or Root Fallback
-        if (!reply && groqKey) {
+        // 3. Text Only or Root Fallback (SKIP IF MEDIA PRESENT to prevent lying)
+        if (!reply && groqKey && !mediaBuffer) {
             console.log("🔍 [ANALYSIS] Engine: Groq Llama-3.3 (Text)");
             const history = memory.slice(-MAX_MEMORY_LENGTH).map(m => ({ 
                 role: m.role === "model" || m.role === "assistant" ? "assistant" : "user", 
                 content: m.content || "" 
             }));
             const apiContext = [memory[0], ...history];
-            apiContext.push({ role: "user", content: userMessage || "(Analyze image contents above)" });
+            apiContext.push({ role: "user", content: userMessage || "(Analyze text contents above)" });
 
             const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
@@ -319,6 +319,10 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                 const err = await res.text();
                 console.error(`❌ [GROQ ERROR] Status: ${res.status}. Body: ${err.substring(0, 200)}`);
             }
+        }
+        
+        if (!reply && mediaBuffer) {
+             reply = "❌ Vision error. Main ye dekh nahi pa raha abhi.";
         }
     } catch (err) {
         console.error("❌ [ROUTER ERROR]", err.message);
