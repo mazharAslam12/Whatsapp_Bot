@@ -163,7 +163,8 @@ async function transcribeVoice(buffer) {
 }
 
 // --- UTILITIES ---
-async function extractFrame(buffer) {
+async function extractFrame(buffer, mediaType) {
+    if (mediaType === "video" || mediaType === "gif") return null; // sharp can't process mp4 without native deps/ffmpeg easily
     try {
         // Extracts the first frame of a GIF or video for Groq Vision compatibility
         return await sharp(buffer, { animated: true }).toFormat("jpeg").toBuffer();
@@ -209,8 +210,7 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return null;
 
-    let model = "gemini-1.5-flash"; 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-8b", "gemini-1.5-pro-latest"];
 
     const currentParts = [];
     currentParts.push({ text: userMessage || "What is in this media? Respond naturally." });
@@ -224,9 +224,14 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
         currentParts.push({ inline_data: { mime_type: mimeType, data: mediaBuffer.toString("base64") } });
     }
     
-    // ISOLATED STRIKE: Skip the chaotic history and just send the System Prompt + Image.
-    // This perfectly routes around the 400 Bad Request role alternation errors.
-    const contents = [{ role: "user", parts: currentParts }];
+    let contextStr = "Recent Context:\n";
+    memory.slice(-4).forEach(m => {
+        if (m.role !== "system" && m.content) {
+            contextStr += `${m.role}: ${m.content}\n`;
+        }
+    });
+    
+    const contents = [{ role: "user", parts: [{text: contextStr}, ...currentParts] }];
 
     const body = { 
         system_instruction: { parts: [{ text: memory[0].content }] },
@@ -234,29 +239,32 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
         generationConfig: { temperature: 0.8, maxOutputTokens: 1024 }
     };
 
-    try {
-        const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-        });
+    for (const model of models) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        try {
+            const res = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body)
+            });
 
-        if (res.ok) {
-            const data = await res.json();
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-            if (text) {
-                console.log(`✅ [VISION SUCCESS] Engine: Gemini 1.5 Flash. Content Length: ${text.length}`);
-                return text;
+            if (res.ok) {
+                const data = await res.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+                if (text) {
+                    console.log(`✅ [GEMINI SUCCESS] Engine: ${model}. Content Length: ${text.length}`);
+                    return text;
+                }
+            } else {
+                const err = await res.text();
+                console.error(`⚠️ [GEMINI ${model} FAIL] Status: ${res.status}.`);
+                if (res.status === 429) await new Promise(r => setTimeout(r, 1000));
             }
-        } else {
-            const err = await res.text();
-            console.error(`❌ [GEMINI VISION FAIL] Status: ${res.status}. Error Details: ${err}`);
+        } catch (e) {
+            console.error(`❌ [GEMINI ${model} FETCH FAIL]`, e.message);
         }
-        return null;
-    } catch (e) {
-        console.error("❌ [GEMINI FETCH FAIL]", e.message);
-        return null;
     }
+    return null;
 }
 
 async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuffer = null, mediaData = null) {
@@ -279,62 +287,58 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
     const memory = await getOrInitMemory(senderJid, userName);
     let reply = null;
 
-    // --- MODEL ROUTER (ULTRA PERFORMANCE v2) ---
     try {
-        // 1. If Media + Gemini available -> Use Gemini (Multimodal King)
         if (mediaBuffer && geminiKey) {
-            console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Gemini 1.5 Flash`);
+            console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Gemini Fallback Chain`);
             reply = await geminiAiReply(userMessage, memory, mediaBuffer, mediaType);
         }
 
-        // 2. If Media (Image/GIF/Video) + Groq Vision Fallback Chain
         if (!reply && mediaBuffer && groqKey) {
-            console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Groq Vision (Fallback Chain)`);
+            console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Groq Vision Fallback Chain`);
+            const frameBuffer = await extractFrame(mediaBuffer, mediaType);
             
-            // Extracted first frame for Groq Vision compatibility
-            const frameBuffer = await extractFrame(mediaBuffer);
-            const base64Media = frameBuffer.toString("base64");
-            
-            // ISOLATED STRIKE: System prompt + Image Only to bypass 400s
-            const apiContext = [
-                memory[0], 
-                {
-                    role: "user",
-                    content: [
-                        { type: "text", text: userMessage || "Describe this media content." },
-                        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
-                    ]
-                }
-            ];
+            if (frameBuffer) {
+                const base64Media = frameBuffer.toString("base64");
+                const apiContext = [
+                    memory[0], 
+                    {
+                        role: "user",
+                        content: [
+                            { type: "text", text: userMessage || "Describe this media content." },
+                            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
+                        ]
+                    }
+                ];
 
-            const visionModels = ["llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"];
-            for (const vModel of visionModels) {
-                const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
-                    body: JSON.stringify({ model: vModel, messages: apiContext, temperature: 0.7 })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    reply = data?.choices?.[0]?.message?.content;
-                    if (reply) break;
-                } else {
-                    console.error(`🔍 [GROQ VISION ${vModel} FAIL] Status: ${res.status}`);
+                const visionModels = ["llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"];
+                for (const vModel of visionModels) {
+                    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
+                        body: JSON.stringify({ model: vModel, messages: apiContext, temperature: 0.7 })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        reply = data?.choices?.[0]?.message?.content;
+                        if (reply) break;
+                    } else {
+                        console.error(`⚠️ [GROQ VISION ${vModel} FAIL] Status: ${res.status}`);
+                        if (res.status === 429) await new Promise(r => setTimeout(r, 1000));
+                    }
                 }
+            } else {
+                console.log(`⚠️ Skipped Groq Vision for ${mediaType} (not supported natively without ffmpeg).`);
             }
         }
 
-        // 3. Text Only Fallback Chain (ALWAYS EXECUTED IF STILL NO REPLY)
         if (!reply && groqKey) {
             console.log("🔍 [ANALYSIS] Engine: Groq Text Fallback Chain");
             
             let apiContext;
             if (mediaBuffer) {
-                // If it reached here WITH media Buffer, all vision APIs failed (Rate limits/Down).
-                // DO NOT CRASH. Strip the image and ask the Text Models for help!
                 const safeHistory = prepareChatContext(memory.slice(-MAX_MEMORY_LENGTH), "groq");
                 apiContext = [memory[0], ...safeHistory];
-                const msg = `[Sent an Image/Video, but my eyes are temporarily offline. User caption: "${userMessage}"]`;
+                const msg = `[Sent an Image/Video/GIF, but my visual sensors couldn't process it. User caption: "${userMessage}"]`;
                 if (apiContext.length > 1 && apiContext[apiContext.length - 1].role === "user") {
                     apiContext[apiContext.length - 1].content += "\n" + msg;
                 } else {
@@ -353,40 +357,57 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             const textModels = [
                 "llama-3.3-70b-versatile",
                 "llama3-70b-8192",
-                "mixtral-8x7b-32768",
                 "llama3-8b-8192",
-                "gemma2-9b-it"
+                "gemma2-9b-it",
+                "mixtral-8x7b-32768"
             ];
 
-            for (const tModel of textModels) {
-                const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
-                    body: JSON.stringify({ model: tModel, messages: apiContext, temperature: 0.7 })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    reply = data?.choices?.[0]?.message?.content;
-                    if (reply) break;
-                } else {
-                    console.error(`❌ [GROQ TEXT ${tModel} FAIL] Status: ${res.status}`);
+            let attempts = 0;
+            const maxAttempts = textModels.length * 2; 
+
+            while (!reply && attempts < maxAttempts) {
+                const tModel = textModels[attempts % textModels.length];
+                try {
+                    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
+                        body: JSON.stringify({ model: tModel, messages: apiContext, temperature: 0.7 })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        reply = data?.choices?.[0]?.message?.content;
+                        if (reply) {
+                            console.log(`✅ [GROQ TEXT SUCCESS] Engine: ${tModel}`);
+                            break;
+                        }
+                    } else {
+                        console.error(`⚠️ [GROQ TEXT ${tModel} FAIL] Status: ${res.status}`);
+                        if (res.status === 429) await new Promise(r => setTimeout(r, 1500));
+                    }
+                } catch(e) {
+                    console.error(`❌ [GROQ TEXT ${tModel} FETCH FAIL]`, e.message);
                 }
+                attempts++;
             }
         }
+
+        if (!reply && !mediaBuffer && geminiKey) {
+            console.log("🔍 [ANALYSIS] Engine: Gemini Text Fallback Chain");
+            reply = await geminiAiReply(userMessage, memory, null, null);
+        }
+
     } catch (err) {
         console.error("❌ [ROUTER ERROR]", err.message);
     }
 
     if (!reply) return "❌ AI brain is busy. Try again soon.";
 
-    // Handle AI Stop Signal
     if (reply.includes("[AI_STOP:")) {
         const mins = parseInt(reply.match(/\[AI_STOP:\s*(\d+)\]/i)?.[1]) || 1;
         stopAiStatus.set(senderJid, Date.now() + (mins * 60 * 1000));
         reply = reply.replace(/\[AI_STOP:.*?\]/i, "").trim() || `🔇 Theek hai, main ${mins} min break pe hoon.`;
     }
 
-    // Save to memory
     memory.push({ 
         role: "user", 
         content: userMessage || `[${mediaType || 'Media'} Asset]`,
