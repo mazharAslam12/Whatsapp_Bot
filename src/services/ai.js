@@ -8,9 +8,7 @@ const conversationMemory = new Map();
 const stopAiStatus = new Map(); // { jid: untilTime }
 const aiDisabledUsers = new Set(); // JIDs where AI is permanently disabled by admin
 const userSpecificPrompts = new Map(); // Master override custom rules per user
-/** Max non-system messages kept per chat (full history on disk, trimmed to stay fast). */
-const MAX_STORED_MESSAGES = 120;
-/** Recent turns sent to LLMs for relationship / context (not the whole file). */
+/** Recent turns sent to LLMs for relationship / context (full transcript still saved on disk). */
 const CHAT_CONTEXT_DEPTH = 12;
 
 const HISTORY_DIR = path.join(__dirname, "../../user_files");
@@ -110,9 +108,15 @@ async function getOrInitMemory(senderJid, userName) {
             "💬 STYLE & MEMORY:\n" +
             "- **Vary your wording** — don't repeat the same opener or phrase you used in recent replies (see CONTEXT block).\n" +
             "- Short, punchy lines usually; a bit longer when they're venting, need **motivation**, or you sent media.\n" +
+            "- **Learn from them over time**: nicknames, running jokes, city/job/hobbies they mention — bring it back **naturally** when it fits (not every message).\n" +
             "- If they're **down, stressed, or hopeless**: real pep talk + you MAY add `[GIF: motivation]` or `[GIF: hug]` **after** your words (same reply).\n" +
             "- If they're **hyped, funny, meme/anime talk, or ask for GIF/pic**: `[GIF: anime]` / `[GIF: meme]` / `[GIF: happy]` / `[GIF: dance]` etc. or `[IMG_SEARCH: short query]` when a real image helps.\n" +
             "- When you use `[GIF:...]` or `[IMG_SEARCH:...]`, still write your **normal Mazhar text in the same reply** — tags are extra; user should read your message **first**, media follows.\n\n" +
+            "🔥 ROAST / BANTER:\n" +
+            "- If they **ask for a roast**, start banter, or it's clearly **close-friend / meme beef** energy, you can **clap back** with funny, light roasts — clever, not cruel.\n" +
+            "- **Never** go after race, religion, disability, body, trauma, gender, or serious insecurities. If they're **hurt, formal, or in crisis**, **no roasting** — be supportive.\n\n" +
+            "📜 CHAT RETENTION:\n" +
+            "- Conversations are **stored on disk** for continuity and **admin dashboard**. Do **not** promise users that messages are deleted or \"erased\".\n\n" +
             "🧠 TOOLS:\n" +
             "- `[WEB_SEARCH: query]` facts/news/tech.\n" +
             "- `[REACTION: emoji]` when it fits.\n" +
@@ -237,7 +241,7 @@ async function performDeepAnalysis(senderJid, displayName = "User") {
     try {
         const data = await fs.readFile(historyPath, "utf8");
         const history = JSON.parse(data).filter((m) => m.role !== "system");
-        const recent = history.slice(-50);
+        const recent = history.slice(-80);
         const allText = recent.map((h) => (h.content || "").toLowerCase()).join(" ");
         let analysis = "";
 
@@ -299,16 +303,6 @@ async function performDeepAnalysis(senderJid, displayName = "User") {
     } catch (err) {
         return "First talk — go easy, learn their vibe.";
     }
-}
-
-function trimStoredMemory(memory) {
-    if (!memory || memory.length < 3) return;
-    const hasSys = memory[0]?.role === "system";
-    const start = hasSys ? 1 : 0;
-    const tail = memory.slice(start);
-    if (tail.length <= MAX_STORED_MESSAGES) return;
-    const keep = tail.slice(-MAX_STORED_MESSAGES);
-    memory.splice(start, memory.length - start, ...keep);
 }
 
 async function saveMemory(senderJid, memory) {
@@ -807,7 +801,6 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             timestamp: now
         });
         memory.push({ role: "assistant", content: reply, timestamp: Date.now() });
-        trimStoredMemory(memory);
         await saveMemory(senderJid, memory);
 
         return reply.trim();
@@ -910,6 +903,38 @@ async function getFullHistory(jid) {
     } catch (e) { return []; }
 }
 
+/**
+ * Paginated non-system messages for dashboard (newest window, or older pages via beforeTs).
+ */
+async function getFullHistoryWindow(jid, { limit = 500, beforeTs = null } = {}) {
+    const n = jid.endsWith("@g.us") ? jid : normalizeUserJid(jid);
+    const historyPath = path.join(HISTORY_DIR, `history_${n.replace(/[:@.]/g, "_")}.json`);
+    let arr = [];
+    try {
+        arr = JSON.parse(await fs.readFile(historyPath, "utf8"));
+    } catch (e) {
+        return { history: [], totalMessages: 0, hasOlder: false };
+    }
+    const msgs = arr.filter((m) => m.role !== "system");
+    msgs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    const lim = Math.min(Math.max(Number(limit) || 500, 20), 2000);
+    let window;
+    if (beforeTs == null || Number.isNaN(Number(beforeTs))) {
+        window = msgs.slice(-lim);
+    } else {
+        const bt = Number(beforeTs);
+        const older = msgs.filter((m) => (m.timestamp || 0) < bt);
+        window = older.slice(-lim);
+    }
+    const oldestTs = window.length ? Math.min(...window.map((m) => m.timestamp || 0)) : null;
+    const hasOlder = oldestTs != null && msgs.some((m) => (m.timestamp || 0) < oldestTs);
+    return {
+        history: window,
+        totalMessages: msgs.length,
+        hasOlder
+    };
+}
+
 function setAdminPrompt(prompt) {
     adminCustomPrompt = prompt;
 }
@@ -942,6 +967,7 @@ module.exports = {
     isAiEnabled,
     getAllContacts,
     getFullHistory,
+    getFullHistoryWindow,
     setUserSpecificPrompt,
     addAdminMessageToMemory,
     getMemory,

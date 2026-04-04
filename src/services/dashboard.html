@@ -563,6 +563,134 @@
         .fa, .fas, .far {
             pointer-events: none;
         }
+
+        /* Chat command bar — archive + search + export */
+        .chat-toolbar {
+            display: none;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px 16px;
+            padding: 14px 40px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            background: rgba(0, 0, 0, 0.35);
+        }
+
+        .chat-toolbar.visible {
+            display: flex;
+        }
+
+        .archive-stat {
+            font-size: 0.72rem;
+            font-weight: 800;
+            color: var(--primary-cyan);
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            flex: 1 1 200px;
+            min-width: 0;
+        }
+
+        .toolbar-search {
+            flex: 1 1 220px;
+            min-width: 140px;
+            max-width: 320px;
+            background: rgba(10, 16, 26, 0.95);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 10px 18px;
+            color: #fff;
+            font-size: 0.82rem;
+            outline: none;
+        }
+
+        .toolbar-search:focus {
+            border-color: var(--primary-cyan);
+            box-shadow: 0 0 12px rgba(0, 242, 254, 0.2);
+        }
+
+        .toolbar-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .msg-container.search-hidden {
+            display: none !important;
+        }
+
+        /* Global prompt modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.82);
+            backdrop-filter: blur(12px);
+            z-index: 5000;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+        .modal-card {
+            width: min(560px, 100%);
+            background: rgba(12, 20, 36, 0.98);
+            border: 1px solid var(--glass-border);
+            border-radius: 28px;
+            padding: 28px 32px 24px;
+            box-shadow: 0 40px 80px rgba(0, 0, 0, 0.55);
+        }
+
+        .modal-card h3 {
+            font-size: 1.1rem;
+            font-weight: 800;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #fff, #7dd3fc);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .modal-card p.hint {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+            line-height: 1.45;
+        }
+
+        .modal-card textarea {
+            width: 100%;
+            min-height: 120px;
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid var(--glass-border);
+            border-radius: 18px;
+            padding: 14px 16px;
+            color: #fff;
+            font-family: inherit;
+            font-size: 0.88rem;
+            resize: vertical;
+            margin-bottom: 18px;
+            outline: none;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .nuke-hint {
+            font-size: 0.62rem;
+            color: var(--text-muted);
+            text-align: center;
+            margin-top: 10px;
+            line-height: 1.4;
+            opacity: 0.85;
+        }
     </style>
 </head>
 <body>
@@ -606,6 +734,7 @@
 
             <div style="padding: 20px 24px 28px;">
                  <button onclick="nukeSession()" class="btn btn-danger" style="width:100%; font-size:0.75rem"><i class="fas fa-radiation"></i> NUKE SESSION</button>
+                 <p class="nuke-hint">Clears WhatsApp login only. Chat JSON files in <code style="color:var(--primary-cyan)">user_files/</code> stay on disk — full lifetime archive for this dashboard.</p>
             </div>
         </aside>
 
@@ -636,9 +765,18 @@
                 <div id="master-controls" style="display:none; gap:10px; flex-wrap:wrap; align-items:center; justify-content:flex-end; max-width:520px">
                     <button type="button" onclick="refreshContacts()" class="btn btn-ghost" style="padding:10px 18px; font-size:0.65rem"><i class="fas fa-sync-alt"></i> Refresh</button>
                     <button type="button" id="ai-toggle-btn" class="btn btn-ghost" style="padding:10px 18px; font-size:0.65rem" onclick="toggleAiForCurrentChat()" title="Mute/unmute AI for this chat"><i class="fas fa-robot"></i> AI: ACTIVE</button>
-                    <button type="button" onclick="openMindConfig()" class="btn btn-ghost" style="padding:10px 18px; font-size:0.65rem"><i class="fas fa-cog"></i> Status</button>
+                    <button type="button" onclick="openMindConfig()" class="btn btn-ghost" style="padding:10px 18px; font-size:0.65rem" title="Global instructions for every chat"><i class="fas fa-brain"></i> Global AI</button>
                 </div>
             </header>
+
+            <div id="chat-toolbar" class="chat-toolbar">
+                <div id="chat-archive-stats" class="archive-stat"></div>
+                <input type="search" id="chat-search" class="toolbar-search" placeholder="Filter loaded messages…" autocomplete="off" />
+                <div class="toolbar-actions">
+                    <button type="button" id="load-older-btn" class="btn btn-ghost" style="padding:10px 16px; font-size:0.65rem"><i class="fas fa-history"></i> Load older</button>
+                    <button type="button" id="export-chat-btn" class="btn btn-ghost" style="padding:10px 16px; font-size:0.65rem"><i class="fas fa-file-export"></i> Export JSON</button>
+                </div>
+            </div>
 
             <div id="chat-feed" class="chat-feed">
                 <div style="text-align:center; padding:150px 30px; color:var(--text-muted); font-weight:600">
@@ -655,6 +793,18 @@
     </div>
 </div>
 
+<div id="global-prompt-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="gp-title">
+    <div class="modal-card">
+        <h3 id="gp-title"><i class="fas fa-brain"></i> Global AI directive</h3>
+        <p class="hint">Applied to every private chat (plus per-user overrides). Chats are stored in full on disk for this dashboard — the model is instructed not to promise message deletion.</p>
+        <textarea id="global-prompt-input" placeholder="Example: Always hype their startup. Never discuss politics."></textarea>
+        <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" onclick="closeMindConfig()">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="saveGlobalPrompt()"><i class="fas fa-save"></i> Save</button>
+        </div>
+    </div>
+</div>
+
 <script>
     const socket = io();
     const feed = document.getElementById('chat-feed');
@@ -668,6 +818,77 @@
     let currentJid = null;
     let knownContacts = [];
     let aiEnabled = true;
+    let chatTotalMessages = 0;
+    let chatHasOlder = false;
+    let oldestLoadedTs = null;
+
+    const chatToolbar = document.getElementById('chat-toolbar');
+    const chatSearch = document.getElementById('chat-search');
+    const loadOlderBtn = document.getElementById('load-older-btn');
+    const exportChatBtn = document.getElementById('export-chat-btn');
+    const globalPromptModal = document.getElementById('global-prompt-modal');
+
+    function updateChatToolbar() {
+        const stats = document.getElementById('chat-archive-stats');
+        if (stats) {
+            stats.textContent = `Lifetime archive · ${chatTotalMessages} message${chatTotalMessages === 1 ? '' : 's'} on disk · auto-delete off`;
+        }
+        if (loadOlderBtn) {
+            loadOlderBtn.disabled = !chatHasOlder;
+            loadOlderBtn.style.opacity = chatHasOlder ? '1' : '0.45';
+        }
+    }
+
+    function clearMessageSearchFilter() {
+        if (!chatSearch) return;
+        chatSearch.value = '';
+        document.querySelectorAll('#chat-feed .msg-container').forEach((el) => el.classList.remove('search-hidden'));
+    }
+
+    if (chatSearch) {
+        chatSearch.addEventListener('input', () => {
+            const q = (chatSearch.value || '').trim().toLowerCase();
+            document.querySelectorAll('#chat-feed .msg-container').forEach((el) => {
+                const text = (el.querySelector('.msg-content')?.textContent || '').toLowerCase();
+                el.classList.toggle('search-hidden', Boolean(q) && !text.includes(q));
+            });
+        });
+    }
+
+    if (loadOlderBtn) {
+        loadOlderBtn.addEventListener('click', () => {
+            if (!currentJid || oldestLoadedTs == null || Number.isNaN(Number(oldestLoadedTs))) return;
+            const prevH = feed.scrollHeight;
+            const prevTop = feed.scrollTop;
+            socket.emit('load_chat', { jid: currentJid, limit: 500, beforeTs: oldestLoadedTs });
+            feed.dataset.preserveScroll = '1';
+            feed.dataset.prevScrollH = String(prevH);
+            feed.dataset.prevScrollTop = String(prevTop);
+        });
+    }
+
+    if (exportChatBtn) {
+        exportChatBtn.addEventListener('click', () => {
+            if (!currentJid) return;
+            socket.emit('export_chat_json', { jid: currentJid });
+        });
+    }
+
+    socket.on('export_chat_json_ready', (payload) => {
+        if (!payload || payload.jid !== currentJid || !Array.isArray(payload.data)) return;
+        const blob = new Blob([JSON.stringify(payload.data, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `chat_${(currentJid || 'export').replace(/[^0-9a-z@._-]/gi, '_')}.json`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+    });
+
+    if (globalPromptModal) {
+        globalPromptModal.addEventListener('click', (e) => {
+            if (e.target === globalPromptModal) closeMindConfig();
+        });
+    }
 
     // Mobile sidebar toggle
     if(mobileToggle) {
@@ -807,27 +1028,73 @@
         document.getElementById('active-user-name').innerHTML = `<i class="fas fa-bolt"></i> ${contact ? escapeHtml(contact.name) : jid.split('@')[0]}`;
         document.getElementById('active-user-jid').innerText = jid;
         document.getElementById('master-controls').style.display = 'flex';
+        if (chatToolbar) chatToolbar.classList.add('visible');
         syncAiButtonForCurrent();
-        
+        clearMessageSearchFilter();
+        oldestLoadedTs = null;
+        chatHasOlder = false;
+        chatTotalMessages = 0;
+        updateChatToolbar();
+
         mainInput.placeholder = `⍟ Bypass to ${jid.split('@')[0]}...`;
         renderContacts();
-        socket.emit('load_chat', { jid });
+        socket.emit('load_chat', { jid, limit: 500 });
     }
 
     socket.on('chat_history', (data) => {
-        if(data.jid !== currentJid) return;
-        feed.innerHTML = '';
-        if(data.history && data.history.length) {
-            data.history.forEach(msg => {
-                if(msg.role === 'system') return;
-                let bubble = msg.role === 'user' ? 'whatsapp' : 'ai';
-                if (msg.role === 'assistant' && /👑 MASTER/i.test(msg.content || '')) bubble = 'admin';
-                appendBubble(bubble, msg.content, msg.timestamp, msg.media);
-            });
-        } else {
-            feed.innerHTML = '<div style="text-align:center; margin: auto; opacity:0.5;"><i class="fas fa-comment"></i> No messages yet</div>';
+        if (data.jid !== currentJid) return;
+        const prepend = data.mode === 'prepend';
+        const preserve = feed.dataset.preserveScroll === '1';
+        const prevH = parseInt(feed.dataset.prevScrollH || '0', 10);
+        const prevTop = parseInt(feed.dataset.prevScrollTop || '0', 10);
+        delete feed.dataset.preserveScroll;
+        delete feed.dataset.prevScrollH;
+        delete feed.dataset.prevScrollTop;
+
+        if (!prepend) {
+            feed.innerHTML = '';
+            chatTotalMessages = typeof data.totalMessages === 'number' ? data.totalMessages : 0;
         }
-        feed.scrollTo(0, feed.scrollHeight);
+        chatHasOlder = Boolean(data.hasOlder);
+
+        if (data.history && data.history.length) {
+            if (prepend) {
+                for (let i = data.history.length - 1; i >= 0; i--) {
+                    const msg = data.history[i];
+                    if (msg.role === 'system') continue;
+                    let bubble = msg.role === 'user' ? 'whatsapp' : 'ai';
+                    if (msg.role === 'assistant' && /👑 MASTER/i.test(msg.content || '')) bubble = 'admin';
+                    appendBubble(bubble, msg.content, msg.timestamp, msg.media, { prepend: true });
+                }
+            } else {
+                data.history.forEach((msg) => {
+                    if (msg.role === 'system') return;
+                    let bubble = msg.role === 'user' ? 'whatsapp' : 'ai';
+                    if (msg.role === 'assistant' && /👑 MASTER/i.test(msg.content || '')) bubble = 'admin';
+                    appendBubble(bubble, msg.content, msg.timestamp, msg.media);
+                });
+            }
+            const tsList = data.history.map((m) => m.timestamp).filter((t) => t != null && !Number.isNaN(Number(t)));
+            if (tsList.length) {
+                const batchMin = Math.min(...tsList.map(Number));
+                oldestLoadedTs = oldestLoadedTs == null ? batchMin : Math.min(Number(oldestLoadedTs), batchMin);
+            }
+        } else if (!prepend) {
+            feed.innerHTML = '<div style="text-align:center; margin: auto; opacity:0.5;"><i class="fas fa-comment"></i> No messages yet</div>';
+            oldestLoadedTs = null;
+        }
+
+        updateChatToolbar();
+
+        if (prepend && preserve) {
+            feed.scrollTop = feed.scrollHeight - prevH + prevTop;
+        } else if (!prepend) {
+            feed.scrollTo(0, feed.scrollHeight);
+        }
+
+        if (chatSearch && chatSearch.value.trim()) {
+            chatSearch.dispatchEvent(new Event('input'));
+        }
     });
 
     socket.on('new_message', (data) => {
@@ -848,7 +1115,7 @@
         }
     });
 
-    function appendBubble(role, text, time, media) {
+    function appendBubble(role, text, time, media, opts) {
         const container = document.createElement('div');
         container.className = `msg-container ${role}`;
         
@@ -893,7 +1160,14 @@
                 </div>
             </div>
         `;
-        feed.appendChild(container);
+        const doPrepend = opts && opts.prepend;
+        if (doPrepend) {
+            const anchor = feed.firstChild;
+            if (anchor) feed.insertBefore(container, anchor);
+            else feed.appendChild(container);
+        } else {
+            feed.appendChild(container);
+        }
     }
 
     sendBtn.onclick = () => {
@@ -922,7 +1196,19 @@
     }
 
     function openMindConfig() {
-        alert("⚙️ HYPERION CORE\n• AI Temperature: 0.92\n• Memory: Quantum\n• Override Rules Active");
+        if (globalPromptModal) globalPromptModal.classList.add('open');
+    }
+
+    function closeMindConfig() {
+        if (globalPromptModal) globalPromptModal.classList.remove('open');
+    }
+
+    function saveGlobalPrompt() {
+        const ta = document.getElementById('global-prompt-input');
+        const prompt = ta ? ta.value.trim() : '';
+        socket.emit('update_ai_prompt', { prompt });
+        closeMindConfig();
+        if (ta) ta.value = '';
     }
 
     socket.on('qr_update', () => {

@@ -8,6 +8,7 @@ const {
     toggleUserAi,
     getAllContacts,
     getFullHistory,
+    getFullHistoryWindow,
     addAdminMessageToMemory,
     setUserSpecificPrompt,
     pauseAiTemporarily,
@@ -119,12 +120,34 @@ function startWebServer() {
         });
 
         socket.on("load_chat", async (data) => {
-            const history = await getFullHistory(data.jid);
-            socket.emit("chat_history", { jid: data.jid, history: history });
+            if (!data?.jid) return;
+            const jid = data.jid.endsWith("@g.us") ? data.jid : normalizeUserJid(data.jid);
+            const limit = Math.min(Math.max(parseInt(data.limit, 10) || 500, 20), 2000);
+            const beforeRaw = data.beforeTs;
+            const beforeTs =
+                beforeRaw != null && beforeRaw !== ""
+                    ? Number(beforeRaw)
+                    : null;
+            const useBefore = beforeTs != null && !Number.isNaN(beforeTs);
+            const result = await getFullHistoryWindow(jid, { limit, beforeTs: useBefore ? beforeTs : null });
+            socket.emit("chat_history", {
+                jid,
+                history: result.history,
+                totalMessages: result.totalMessages,
+                hasOlder: result.hasOlder,
+                mode: useBefore ? "prepend" : "replace"
+            });
+        });
+
+        socket.on("export_chat_json", async (data) => {
+            if (!data?.jid) return;
+            const jid = data.jid.endsWith("@g.us") ? data.jid : normalizeUserJid(data.jid);
+            const raw = await getFullHistory(jid);
+            socket.emit("export_chat_json_ready", { jid, data: raw });
         });
 
         socket.on("update_ai_prompt", (data) => {
-            setAdminPrompt(data.prompt);
+            setAdminPrompt(data.prompt || "");
         });
 
 
