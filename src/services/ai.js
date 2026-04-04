@@ -120,6 +120,31 @@ function washAiReply(text) {
     return clean.replace(/\s+/g, " ").trim();
 }
 
+function scorePersonaReply(text) {
+    if (!text) return -100;
+    let score = 0;
+    const lower = text.toLowerCase();
+    const wordCount = text.split(/\s+/).length;
+
+    // 1. Brevity is King (5-10 words is perfect)
+    if (wordCount >= 3 && wordCount <= 12) score += 40;
+    else if (wordCount > 12 && wordCount <= 20) score += 10;
+    else score -= 20;
+
+    // 2. Persona Match (Urdu/Hindi slang and casual tone)
+    const eliteSlang = ["jani", "yaar", "han", "bhai", "acha", "theek", "scene", "set", "tension", "load"];
+    eliteSlang.forEach(s => { if (lower.includes(s)) score += 5; });
+
+    // 3. Robotic Penalty (Double-check even after washer)
+    const robotic = ["assistant", "virtual", "model", "help", "assist", "beliefs", "language"];
+    robotic.forEach(r => { if (lower.includes(r)) score -= 50; });
+
+    // 4. Multi-language Vibe
+    if (/[a-zA-Z]/.test(text) && /[\u0600-\u06FF]/.test(text)) score += 15; // Mix of English and Urdu script is elite
+
+    return score;
+}
+
 async function performDeepAnalysis(senderJid) {
     const historyPath = path.join(HISTORY_DIR, `history_${senderJid.replace(/[:@.]/g, "_")}.json`);
     try {
@@ -430,72 +455,75 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             reply = await geminiAiReply(userMessage, memory, null, null, errorsList);
         }
 
-        // 4. POLLINATIONS PUBLIC TEXT FALLBACK (UNLIMITED & FREE)
-        if (!reply) {
-            console.log("🔍 [ANALYSIS] Engine: Pollinations Free Text Fallback Chain");
-            let apiContext = prepareChatContext(memory.slice(-4), "groq");
-            
-            const firstMsg = { role: "system", content: memory[0].content };
-            
-            if (mediaBuffer) {
-                const msg = `[Sent a Media File, but APIs failed to view it. Caption: "${userMessage}"]`;
-                apiContext.push({ role: "user", content: msg });
-            } else {
-                apiContext.push({ role: "user", content: userMessage || "Hello" });
-            }
+        // 4. HYPER-INTELLIGENCE COMPETITIVE SELECTION (PARALLEL SEARCH)
+        if (!reply && !mediaBuffer) {
+            console.log("🔍 [ANALYSIS] Brainstorming: 5 Elite Models Competing...");
+            const brainstormingResults = await Promise.allSettled([
+                // Brain 1: Groq Llama 3 70B (Speed)
+                fetch("https://api.groq.com/openai/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
+                    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [memory[0], ...prepareChatContext(memory.slice(-4), "groq"), {role: "user", content: userMessage}], temperature: 0.8 })
+                }).then(r => r.json()).then(d => d.choices[0].message.content),
 
-            const pollModels = ["openai", "mistral"];
-            for (const pModel of pollModels) {
-                try {
-                    const url = `https://text.pollinations.ai/`;
-                    const res = await fetch(url, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ messages: [firstMsg, ...apiContext], model: pModel })
-                    });
-                    if (res.ok) {
-                        const text = await res.text();
-                        if (text) {
-                            reply = text;
-                            console.log(`✅ [POLLINATIONS SUCCESS] Engine: ${pModel}`);
-                            break;
-                        }
-                    } else {
-                        errorsList.push(`Pollinations (${pModel}): Status ${res.status}`);
-                    }
-                } catch (e) {
-                    errorsList.push(`Pollinations (${pModel}): Fetch Failed`);
-                }
+                // Brain 2: Gemini 1.5 Pro (Logic)
+                geminiAiReply(userMessage, memory, null, null, []),
+
+                // Brain 3: Pollinations OpenAI (Creative)
+                fetch("https://text.pollinations.ai/", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ messages: [memory[0], ...prepareChatContext(memory.slice(-4), "groq"), {role: "user", content: userMessage}], model: "openai" })
+                }).then(r => r.text()),
+
+                // Brain 4: Pollinations Mistral (Style)
+                fetch("https://text.pollinations.ai/", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ messages: [memory[0], ...prepareChatContext(memory.slice(-4), "groq"), {role: "user", content: userMessage}], model: "mistral" })
+                }).then(r => r.text())
+            ]);
+
+            let candidates = brainstormingResults
+                .filter(res => res.status === "fulfilled" && res.value)
+                .map(res => {
+                    const clean = washAiReply(res.value);
+                    return { text: clean, score: scorePersonaReply(clean) };
+                })
+                .sort((a, b) => b.score - a.score);
+
+            if (candidates.length > 0) {
+                console.log(`🏆 [BRAINSTORM WINNER] Score: ${candidates[0].score}, Text: ${candidates[0].text.substring(0, 30)}...`);
+                reply = candidates[0].text;
             }
         }
 
+        if (!reply) {
+            return "Yaar net ka scene kharab hai, dobara try karo ya waps bhejo.";
+        }
+
+        reply = washAiReply(reply);
+
+        if (reply.includes("[AI_STOP:")) {
+            const mins = parseInt(reply.match(/\[AI_STOP:\s*(\d+)\]/i)?.[1]) || 1;
+            stopAiStatus.set(senderJid, now + (mins * 60 * 1000));
+            reply = reply.replace(/\[AI_STOP:.*?\]/i, "").trim() || `🔇 Theek hai, main ${mins} min break pe hoon.`;
+        }
+
+        memory.push({ 
+            role: "user", 
+            content: userMessage || `[${mediaType || 'Media'} Asset]`,
+            media: mediaData,
+            timestamp: now
+        });
+        memory.push({ role: "assistant", content: reply, timestamp: Date.now() });
+        await saveMemory(senderJid, memory);
+
+        return reply.trim();
     } catch (err) {
-        errorsList.push(`Router Error: ${err.message}`);
         console.error("❌ [ROUTER ERROR]", err.message);
+        return "Yaar net ka scene kharab hai, dobara try karo.";
     }
-
-    if (!reply) {
-        return "Yaar net ka scene kharab hai, dobara try karo ya waps bhejo.";
-    }
-
-    reply = washAiReply(reply);
-
-    if (reply.includes("[AI_STOP:")) {
-        const mins = parseInt(reply.match(/\[AI_STOP:\s*(\d+)\]/i)?.[1]) || 1;
-        stopAiStatus.set(senderJid, Date.now() + (mins * 60 * 1000));
-        reply = reply.replace(/\[AI_STOP:.*?\]/i, "").trim() || `🔇 Theek hai, main ${mins} min break pe hoon.`;
-    }
-
-    memory.push({ 
-        role: "user", 
-        content: userMessage || `[${mediaType || 'Media'} Asset]`,
-        media: mediaData,
-        timestamp: now
-    });
-    memory.push({ role: "assistant", content: reply, timestamp: Date.now() });
-    await saveMemory(senderJid, memory);
-
-    return reply.trim();
 }
 
 function toggleUserAi(jid, status) {
