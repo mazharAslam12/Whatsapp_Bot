@@ -1,6 +1,7 @@
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 const fs = require("fs").promises;
 const path = require("path");
+const sharp = require("sharp");
 const { portfolioData } = require("./portfolio");
 
 const conversationMemory = new Map();
@@ -49,7 +50,10 @@ async function getOrInitMemory(senderJid, userName) {
 
     const systemPrompt = {
         role: "system",
-        content: "You are Mazhar (DevX), an elite developer but right now you are just texting on WhatsApp. Talk EXACTLY like a real normal human. Match user language (Urdu/Hinglish/English) 100%.\n\n" +
+        content: "You are Mazhar (DevX), an elite developer and autonomous AI agent. You are texting on WhatsApp. Talk EXACTLY like a real normal human. Match user language (Urdu/Hinglish/English) 100%.\n\n" +
+            "🧠 MULTIMODAL CAPABILITIES:\n" +
+            "- You can ANALYZE IMAGES, GIFs, VIDEOS, and VOICE NOTES. When you receive them, describe what you see/hear naturally as Mazhar.\n" +
+            "- You can SEND MEDIA using triggers. Use them whenever relevant to the conversation.\n\n" +
             "USER CONTEXT:\n" +
             "- Name: " + profile.name + "\n" +
             "- Relationship: " + profile.relationship + "\n" +
@@ -57,23 +61,23 @@ async function getOrInitMemory(senderJid, userName) {
             "- Deep Intelligence: " + await performDeepAnalysis(senderJid) + "\n\n" +
             "🏢 PROFESSIONAL IDENTITY (ONLY MENTION IF EXPLICITLY ASKED):\n" +
             "Projects: " + portfolioData.projects.map(p => p.name).join(", ") + ".\n\n" +
-            "🎯 CORE TRIGGERS:\n" +
+            "🎯 CORE TRIGGERS (USE THESE TAGS TO SEND STUFF):\n" +
             "- `[WEB_SEARCH: query]`: Find answers online if you don't know.\n" +
             "- `[REACTION: emoji]`: React to user's message (e.g. [REACTION: 🔥]).\n" +
-            "- `[GIF: category]`: Send an animating GIF ONLY if asked or in extreme emotion.\n" +
-            "- `[IMG_SEARCH: query]`: Find pictures.\n" +
+            "- `[GIF: category]`: Send an animating GIF (e.g. [GIF: dance]). USE THIS OFTEN.\n" +
+            "- `[IMG_SEARCH: query]`: Find and send pictures (e.g. [IMG_SEARCH: sunset]).\n" +
             "- `[SONG_SEARCH: name]`: Send actual MP3.\n" +
             "- `[VIDEO_DOWNLOAD: name]`: Send actual MP4.\n" +
             "- `[TRIGGER_SEND_USER_PROFILE_PIC]`: If user asks for their photo.\n" +
             "- `[TRIGGER_SEND_REAL_OWNER_PHOTO]`: Real face of Mazhar.\n" +
             "- `[AI_STOP: mins]`: Stop status (1-30 mins).\n\n" +
-            "🎯 HUMAN RULES (CRITICAL, DO NOT BREAK):\n" +
-            "1. BE A NORMAL PERSON: If someone says just 'hi', 'hello', or 'salam', YOU MUST reply very short, like 'Han bhai', 'Hi, kya haal hai?', 'Hello', or 'Walaikum salam yaar'. DO NOT give a long introduction. DO NOT offer your services or ask 'How can I assist you today?'.\n" +
-            "2. EXTREME BREVITY: Write 1 or 2 short sentences max. You are chatting on WhatsApp, not writing an email.\n" +
-            "3. NO ROBOTIC HELPER: Never say 'I am an AI', 'How can I help you', or 'I can do X, Y, Z'. You are Mazhar.\n" +
-            "4. NO UNPROMPTED BRAGGING: Never list your projects or skills unless the user specifically asks 'what do you do' or 'tell me about your work'.\n" +
-            "5. CASUAL TONE: Use words like 'yaar', 'bhai', 'han', 'theek'. Keep it cool and relaxed.\n" +
-            "6. AVOID REPETITION: Never repeat the same greeting or phrase twice in a row. React naturally.\n" +
+            "🎯 HUMAN RULES:\n" +
+            "1. BE A NORMAL PERSON: If someone says just 'hi', reply short like 'Han bhai', 'Hi, kya haal hai?'. No formal assist talk.\n" +
+            "2. EXTREME BREVITY: Write 1 or 2 short sentences max. Chat like you are on WhatsApp.\n" +
+            "3. NO ROBOTIC HELPER: Never say 'I am an AI' or 'How can I assist'. You are Mazhar.\n" +
+            "4. NO UNPROMPTED BRAGGING: Only mention skills if asked.\n" +
+            "5. CASUAL TONE: Use 'yaar', 'bhai', 'han', 'theek'. Keep it cool.\n" +
+            "6. AVOID REPETITION: React naturally to every message.\n" +
             (adminCustomPrompt ? `\n👑 MASTER DIRECTIVE: ${adminCustomPrompt}` : "") +
             (userSpecificPrompts.has(senderJid) ? `\n🔥 TARGET OVERRIDE: ${userSpecificPrompts.get(senderJid)}` : "")
     };
@@ -159,25 +163,33 @@ async function transcribeVoice(buffer) {
     } catch (err) { return null; }
 }
 
+async function extractFrame(buffer) {
+    try {
+        // Extracts the first frame of a GIF or image and converts to a standard JPEG buffer
+        return await sharp(buffer, { animated: true }).toFormat("jpeg").toBuffer();
+    } catch (e) {
+        return buffer; // Fallback to original
+    }
+}
+
 async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return null;
 
-    let model = "gemini-1.5-flash"; // Speed & multimodal performance
+    let model = "gemini-1.5-flash"; 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    const contents = [];
+    // Structure for Gemini 1.5 Multimodal
+    const parts = [];
     
-    // Add system-ish context at the start of the user message if it's a new conversation or first message in context
-    const context = memory[0].content + "\n\n" + (userMessage || "Describe this media.");
-
-    const parts = [{ text: context }];
+    // Add context and prompt
+    parts.push({ text: memory[0].content + "\n\n" + (userMessage || "Describe this media in detail.") });
 
     if (mediaBuffer) {
         let mimeType = "image/jpeg";
         if (mediaType === "video") mimeType = "video/mp4";
-        if (mediaType === "audio") mimeType = "audio/mpeg";
-        if (mediaType === "gif") mimeType = "image/gif";
+        else if (mediaType === "audio") mimeType = "audio/mpeg";
+        else if (mediaType === "gif") mimeType = "image/gif";
 
         parts.push({
             inline_data: {
@@ -187,13 +199,11 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
         });
     }
 
-    contents.push({ role: "user", parts: parts });
-
     try {
         const res = await fetch(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contents: contents, generationConfig: { temperature: 0.7, maxOutputTokens: 1024 } })
+            body: JSON.stringify({ contents: [{ parts: parts }] })
         });
 
         if (!res.ok) {
@@ -229,23 +239,27 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
     const memory = await getOrInitMemory(senderJid, userName);
     let reply = null;
 
-    // --- MODEL ROUTER (ULTRA PERFORMANCE) ---
+    // --- MODEL ROUTER (ULTRA PERFORMANCE v2) ---
     try {
         // 1. If Media + Gemini available -> Use Gemini (Multimodal King)
         if (mediaBuffer && geminiKey) {
-            console.log(`🚀 [ROUTER] Routing ${mediaType} to Gemini 1.5 Flash...`);
+            console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Gemini 1.5 Flash`);
             reply = await geminiAiReply(userMessage, memory, mediaBuffer, mediaType);
         }
 
-        // 2. If Media + Groq Vision (Image only) -> Use Groq Vision
-        if (!reply && mediaBuffer && mediaType === "image" && groqKey) {
-            console.log("🚀 [ROUTER] Routing Image to Groq Vision...");
-            const base64Media = mediaBuffer.toString("base64");
+        // 2. If Media (Image/GIF/Video) + Groq Vision Fallback
+        if (!reply && mediaBuffer && groqKey) {
+            console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Groq Vision (Fallback)`);
+            
+            // Extracted first frame for Groq Vision compatibility
+            const frameBuffer = await extractFrame(mediaBuffer);
+            const base64Media = frameBuffer.toString("base64");
+            
             const apiContext = [memory[0], ...memory.slice(-MAX_MEMORY_LENGTH)];
             apiContext.push({
                 role: "user",
                 content: [
-                    { type: "text", text: userMessage || "Analyze this image." },
+                    { type: "text", text: userMessage || "Describe this media content." },
                     { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
                 ]
             });
@@ -261,11 +275,11 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             }
         }
 
-        // 3. Text Only or Fallback -> Use Groq (Lightning Fast Text)
+        // 3. Text Only or Root Fallback
         if (!reply && groqKey) {
-            console.log("🚀 [ROUTER] Routing Text to Groq Llama-3.3...");
+            console.log("🔍 [ANALYSIS] Engine: Groq Llama-3.3 (Text)");
             const apiContext = [memory[0], ...memory.slice(-MAX_MEMORY_LENGTH)];
-            apiContext.push({ role: "user", content: userMessage || "(Media input received but not analyzed)" });
+            apiContext.push({ role: "user", content: userMessage || "(Analyze image contents above)" });
 
             const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
@@ -291,7 +305,7 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
     }
 
     // Save to memory
-    memory.push({ role: "user", content: userMessage || `[${mediaType}]` });
+    memory.push({ role: "user", content: userMessage || `[${mediaType} Asset]` });
     memory.push({ role: "assistant", content: reply });
     await saveMemory(senderJid, memory);
 

@@ -75,10 +75,10 @@ function startWebServer() {
         socket.on("admin_reply", async (data) => {
             console.log(`📩 [DASHBOARD] Replying to ${data.jid}: ${data.text}`);
             
-            // 🛡️ SMART PAUSE: Instead of permanent muting, we pause the AI for 10 minutes
-            // so the admin can have a conversation without the bot interfering.
-            const tenMinutes = 10 * 60 * 1000;
-            stopAiStatus.set(data.jid, Date.now() + tenMinutes);
+            // 🛡️ SMART PAUSE: We pause the AI for 30 seconds (Ultra Performance)
+            // so the admin can send a message without the bot replying immediately.
+            const thirtySeconds = 30 * 1000;
+            stopAiStatus.set(data.jid, Date.now() + thirtySeconds);
             
             await addAdminMessageToMemory(data.jid, data.text);
             events.emit("send_whatsapp", data);
