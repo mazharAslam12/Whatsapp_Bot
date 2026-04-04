@@ -783,25 +783,27 @@
         let mediaMarkup = '';
         if (media) {
             const mUrl = media.url;
-            if (media.type === 'image' || media.type === 'sticker') {
-                mediaMarkup = `<div class="media-attachment"><img src="${mUrl}" onclick="window.open('${mUrl}')" style="cursor:pointer"></div>`;
-            } else if (media.type === 'video') {
-                mediaMarkup = `<div class="media-attachment"><video src="${mUrl}" controls preload="metadata"></video></div>`;
-            } else if (media.type === 'audio') {
-                mediaMarkup = `<div class="media-attachment"><audio src="${mUrl}" controls style="width:100%"></audio></div>`;
-            } else if (media.type === 'document') {
-                mediaMarkup = `<div class="media-attachment" style="padding:15px; background:rgba(255,255,255,0.05); cursor:pointer" onclick="window.open('${mUrl}')">
-                    <i class="fas fa-file-pdf" style="color:var(--danger-crimson)"></i> <span style="font-size:0.8rem; margin-left:10px">Document Attachment</span>
+            const mType = media.type || 'document';
+            
+            if (mType === 'image' || mType === 'sticker') {
+                mediaMarkup = `<div class="media-attachment" style="background: rgba(0,0,0,0.4);"><img src="${mUrl}" loading="lazy" onclick="window.open('${mUrl}')" style="cursor:pointer; max-height:350px; border-radius:12px;"></div>`;
+            } else if (mType === 'video' || mType === 'gif') {
+                mediaMarkup = `<div class="media-attachment"><video src="${mUrl}" controls preload="metadata" style="max-height:350px; border-radius:12px;"></video></div>`;
+            } else if (mType === 'audio') {
+                mediaMarkup = `<div class="media-attachment" style="padding:15px; background: rgba(0,242,254,0.05); border-radius:40px; border:1px solid var(--glass-border); display:flex; align-items:center;"><audio src="${mUrl}" controls style="width:240px; height:32px;"></audio></div>`;
+            } else {
+                mediaMarkup = `<div class="media-attachment" style="padding:18px; background:rgba(255,255,255,0.03); cursor:pointer; border-radius:16px; border:1px solid var(--glass-border);" onclick="window.open('${mUrl}')">
+                    <i class="fas fa-file-invoice" style="color:var(--primary-cyan); font-size:1.4rem;"></i> <span style="font-size:0.75rem; margin-left:12px; color:var(--text-muted)">Nexus Core Transfer</span>
                 </div>`;
             }
         }
 
         container.innerHTML = `
             <div class="msg-bubble">
+                <div class="msg-content">${escapeHtml(text)}</div>
                 ${mediaMarkup}
-                <div class="msg-content">${text ? escapeHtml(text) : ''}</div>
-                <div style="margin-top:10px; font-size:0.6rem; color:var(--text-muted); text-align:right; font-weight:700">
-                    <i class="far fa-clock"></i> ${new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <div style="font-size: 0.6rem; color: var(--text-muted); text-align: right; margin-top: 10px; font-weight: 800; opacity: 0.7;">
+                    ${new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
             </div>
         `;

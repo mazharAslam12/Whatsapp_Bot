@@ -59,20 +59,17 @@ async function getOrInitMemory(senderJid, userName) {
             "- Name: " + profile.name + "\n" +
             "- Relationship: " + profile.relationship + "\n" +
             "- Current Intelligence: " + await performDeepAnalysis(senderJid) + "\n\n" +
-            "🎯 CORE TRIGGERS (USE CONTEXTUALLY):\n" +
+            "🎯 CORE TRIGGERS (SELECTIVE JOINING):\n" +
             "- `[WEB_SEARCH: query]`: Find answers online if you don't know.\n" +
             "- `[REACTION: emoji]`: React to user's message (e.g. [REACTION: 🔥]).\n" +
-            "- `[GIF: category]`: Use ONLY for emotions. Whitelist: smile, wave, happy, dance, laugh, hug, wink, pat, bonk, yeet, bully, slap, kill, cringe, cuddle, cry, highfive, handhold, nom, bite, glomp, slap, kick.\n" +
-            "- `[IMG_SEARCH: query]`: Find pictures only when asked or highly relevant.\n" +
-            "- `[SONG_SEARCH: name]`: Send actual MP3.\n" +
-            "- `[AI_STOP: mins]`: For temporary pauses.\n\n" +
-            "🎯 HUMAN RULES (CRITICAL, DO NOT BREAK):\n" +
-            "1. BE A NORMAL PERSON: If someone says just 'hi', reply short like 'Han bhai', 'Hi, kya haal hai?'. No formal assist talk.\n" +
-            "2. EXTREME BREVITY: Write 1 or 2 short sentences max. Chat like you are on WhatsApp.\n" +
-            "3. NO ROBOTIC HELPER: Never say 'I am an AI' or 'How can I assist'. You are Mazhar.\n" +
-            "4. NO UNPROMPTED BRAGGING: Only mention skills if asked.\n" +
-            "5. CASUAL TONE: Use 'yaar', 'bhai', 'han', 'theek'. Keep it cool.\n" +
-            "6. AVOID REPETITION: React naturally to every message.\n" +
+            "- `[GIF: category]`: ONLY send if the mood is perfect. Whitelist: smile, wave, happy, dance, laugh, hug, wink, pat, bonk, yeet, bully, slap, kill, cringe, cuddle, cry, highfive, handhold, nom, bite, glomp, slap.\n" +
+            "- `[IMG_SEARCH: query]`: ONLY if user asks. DO NOT send images without reason.\n" +
+            "- `[SONG_SEARCH: name]`: MP3 request.\n\n" +
+            "🎯 HUMAN RULES (ULTRA PERFORMANCE):\n" +
+            "1. MAXIMUM BREVITY: REPLY IN **MAX 10 WORDS**. BE SUPER SHORT, HUMAN, AND CASUAL. NO LONG TEXT.\n" +
+            "2. NO ROBOTIC HELPER: You are Mazhar (DevX). Never say 'How can I assist' or 'I am an AI'.\n" +
+            "3. NO MEDIA SPAM: Do NOT send [GIF] or [IMG_SEARCH] unless it is asked for or 100% needed.\n" +
+            "4. NATURAL STYLE: Use Urdu/Hindi/English mix. 'han bhai', 'yaar', 'theek', 'acha', 'ok'.\n" +
             (adminCustomPrompt ? `\n👑 MASTER DIRECTIVE: ${adminCustomPrompt}` : "") +
             (userSpecificPrompts.has(senderJid) ? `\n🔥 TARGET OVERRIDE: ${userSpecificPrompts.get(senderJid)}` : "")
     };
@@ -178,7 +175,7 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
     if (mediaBuffer) {
         let mimeType = "image/jpeg";
         if (mediaType === "video") mimeType = "video/mp4";
-        else if (mediaType === "audio") mimeType = "audio/wave"; // OGG fallback
+        else if (mediaType === "audio") mimeType = "audio/ogg"; // Correct MIME for WA Audio
         else if (mediaType === "gif") mimeType = "image/gif";
         
         // Multi-modal message structure (Gemini 1.5 prefers text AFTER/WITH media)
@@ -221,7 +218,8 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType) {
     }
 }
 
-async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuffer = null, mediaType = null) {
+async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuffer = null, mediaData = null) {
+    const mediaType = mediaData?.type || null;
     const now = Date.now();
     if (stopAiStatus.has(senderJid)) {
         if (now < stopAiStatus.get(senderJid)) return null;
@@ -306,8 +304,13 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
     }
 
     // Save to memory
-    memory.push({ role: "user", content: userMessage || `[${mediaType} Asset]` });
-    memory.push({ role: "assistant", content: reply });
+    memory.push({ 
+        role: "user", 
+        content: userMessage || `[${mediaType || 'Media'} Asset]`,
+        media: mediaData,
+        timestamp: now
+    });
+    memory.push({ role: "assistant", content: reply, timestamp: Date.now() });
     await saveMemory(senderJid, memory);
 
     return reply.trim();

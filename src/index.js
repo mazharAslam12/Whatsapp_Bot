@@ -17,15 +17,26 @@ events.on("request_status", () => {
 
 // Handle Dashboard Replies
 events.on("send_whatsapp", async (data) => {
+    console.log(`📤 [SYSTEM] Dashboard transmit request for ${data.jid}`);
     if (sock) {
         try {
-            await safeSendMessage(sock, data.jid, { text: data.text });
-            console.log(`✅ [DASHBOARD] Reply sent to ${data.jid}`);
+            if (!data.jid || !data.text) throw new Error("Missing JID or Text in dashboard payload");
+            
+            // 🛡️ JID SANITIZER: Ensure correct format for Baileys
+            let targetJid = data.jid.trim();
+            if (!targetJid.includes("@")) {
+                targetJid = targetJid.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
+            } else if (targetJid.endsWith("@c.us")) {
+                targetJid = targetJid.replace("@c.us", "@s.whatsapp.net");
+            }
+
+            await safeSendMessage(sock, targetJid, { text: data.text });
+            console.log(`✅ [DASHBOARD] Message delivered to ${targetJid}`);
         } catch (err) {
-            console.error("❌ [DASHBOARD] Reply failed:", err.message);
+            console.error("❌ [DASHBOARD] Transmit failed:", err.message);
         }
     } else {
-        console.warn("⚠️ [DASHBOARD] Cannot reply: Bot is offline.");
+        console.warn("⚠️ [DASHBOARD] Cannot transmit: Bot is offline.");
     }
 });
 

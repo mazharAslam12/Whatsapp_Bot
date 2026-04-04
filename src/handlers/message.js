@@ -229,22 +229,9 @@ async function handleMessage(sock, msg) {
         const finalPrompt = prompt.replace("@" + sock.user.id.split(":")[0], "").trim();
         if (!finalPrompt && !mediaBuffer) return;
 
-        const aiReply = await mazharAiReply(finalPrompt, jid, pushName, mediaBuffer, mediaType);
+        const aiReply = await mazharAiReply(finalPrompt, jid, pushName, mediaBuffer, mediaData);
 
-
-
-        // Filter and clean the reply from AI system tags before sending
-        let cleanReply = aiReply
-            .replace(/\[IMG_SEARCH:.*?\]/g, "")
-            .replace(/\[GIF:.*?\]/g, "")
-            .replace(/\[WEB_SEARCH:.*?\]/g, "")
-            .replace(/\[READ_CODE:.*?\]/g, "")
-            .replace(/\[WRITE_CODE:.*?\]/g, "")
-            .replace(/\[NEW_LEAD:.*?\]/g, "")
-            .trim();
-
-        console.log(`💎 [AI REPLY] ${cleanReply.substring(0, 100)}...`);
-        events.emit("ai_reply", { text: cleanReply, jid: jid });
+        console.log(`💎 [AI-BRAIN] Raw: ${aiReply.substring(0, 50)}...`);
 
 
         // --- TRIGGER EXECUTION ENGINE (SEQUENTIAL POWER) ---
@@ -258,7 +245,16 @@ async function handleMessage(sock, msg) {
         const imgMatch = aiReply.match(/\[IMG_SEARCH:\s*(.*?)\]/i);
         if (imgMatch) {
             const urls = await searchImages(imgMatch[1], 1);
-            if (urls?.[0]) await safeSendMessage(sock, jid, { image: { url: urls[0] }, caption: "💎 Mazhar DevX Discovery" });
+            if (urls?.[0]) {
+                await safeSendMessage(sock, jid, { image: { url: urls[0] }, caption: "💎 Mazhar DevX Discovery" });
+                // Save to memory
+                const { getMemory, saveMemory } = require("../services/ai");
+                const history = await getMemory(jid);
+                if (history.length && history[history.length - 1].role === "assistant") {
+                    history[history.length - 1].media = { type: "image", url: urls[0] };
+                    await saveMemory(jid, history);
+                }
+            }
         }
 
         const gifMatch = aiReply.match(/\[GIF:\s*(.*?)\]/i);
@@ -268,6 +264,13 @@ async function handleMessage(sock, msg) {
             if (res.ok) {
                 const data = await res.json();
                 await safeSendMessage(sock, jid, { video: { url: data.url }, gifPlayback: true });
+                // Persistent History Fix: Save GIF URL to memory
+                const { getMemory, saveMemory } = require("../services/ai");
+                const history = await getMemory(jid);
+                if (history.length && history[history.length - 1].role === "assistant") {
+                    history[history.length - 1].media = { type: "gif", url: data.url };
+                    await saveMemory(jid, history);
+                }
             }
         }
 
@@ -286,9 +289,23 @@ async function handleMessage(sock, msg) {
             await safeSendMessage(sock, jid, { image: { url: chosen }, caption: "Me (Mazhar DevX)" });
         }
 
+        // --- UNIVERSAL TAG STRIPPER (FINAL PASS) ---
+        // Robust multiline removal of [ANY_TAG:...]
+        let finalCleanReply = aiReply.replace(/\[[\s\S]*?\]/g, "").replace(/\n{2,}/g, "\n").trim();
+
         // Send the cleaned text reply
-        if (cleanReply) {
-            await safeSendMessage(sock, jid, { text: cleanReply });
+        if (finalCleanReply) {
+            console.log(`✅ [SYSTEM] Sending final clean reply: ${finalCleanReply.substring(0, 30)}...`);
+            await safeSendMessage(sock, jid, { text: finalCleanReply });
+            events.emit("ai_reply", { text: finalCleanReply, jid: jid });
+
+            // Persist the AI's cleaned text in memory (overwriting the raw version)
+            const { getMemory, saveMemory } = require("../services/ai");
+            const history = await getMemory(jid);
+            if (history.length && history[history.length - 1].role === "assistant") {
+                history[history.length - 1].content = finalCleanReply;
+                await saveMemory(jid, history);
+            }
         }
 
     } catch (err) {
