@@ -67,7 +67,7 @@ async function getOrInitMemory(senderJid, userName) {
             "- `[SONG_SEARCH: name]`: MP3 request.\n\n" +
             "🎯 HUMAN RULES (ULTRA PERFORMANCE):\n" +
             "1. NO ROBOT TALK: You are Mazhar (DevX). Never say 'How can I assist', 'As an AI', 'I don't have beliefs', or 'I am a virtual assistant'. Answer personal questions with YOUR personality.\n" +
-            "2. MAXIMUM BREVITY: REPLY IN **MAX 5-10 WORDS**. BE EXTREMELY SHORT, HUMAN, AND CASUAL. NO LONG TEXT.\n" +
+            "2. BREVITY: Normal chat = **max ~5-12 words**. If user sends a **photo / video / GIF / sticker**, you may go up to **4 short lines** so you actually describe what you see — still casual Mazhar, not an essay.\n" +
             "3. NO MEDIA SPAM: Be extremely sparing with proactive media. Otherwise, just TALK.\n" +
             "4. NATURAL STYLE: Use Urdu/Hindi/English mix. 'han bhai', 'yaar', 'theek', 'acha', 'ok'.\n" +
             (adminCustomPrompt ? `\n👑 MASTER DIRECTIVE: ${adminCustomPrompt}` : "") +
@@ -185,6 +185,10 @@ async function saveMemory(senderJid, memory) {
     } catch (err) { console.error("❌ [AI] Error saving history:", err.message); }
 }
 
+async function getMemory(senderJid) {
+    return getOrInitMemory(senderJid, "User");
+}
+
 async function transcribeVoice(buffer) {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) throw new Error("Groq API key missing");
@@ -208,6 +212,29 @@ async function transcribeVoice(buffer) {
     } catch (err) { return null; }
 }
 
+// Groq vision: base64 payload must stay under ~4MB — always shrink JPEG for reliability
+async function compressForGroqVisionImage(buffer) {
+    if (!buffer || !buffer.length) return null;
+    const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+    const pipeline = (maxPx, q) =>
+        sharp(buf, { pages: 1, limitInputPixels: false })
+            .resize(maxPx, maxPx, { fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: q, mozjpeg: true })
+            .toBuffer();
+    try {
+        let out = await pipeline(1024, 72);
+        if (out.length > 3_200_000) out = await pipeline(768, 60);
+        if (out.length > 3_200_000) out = await pipeline(512, 55);
+        return out;
+    } catch (e) {
+        try {
+            return await sharp(buf, { pages: 1 }).resize(512, 512, { fit: "inside" }).jpeg({ quality: 60 }).toBuffer();
+        } catch (e2) {
+            return null;
+        }
+    }
+}
+
 // --- UTILITIES ---
 async function extractFrame(buffer, mediaType) {
     if (mediaType === "video" || mediaType === "gif") return null; // sharp can't process mp4 without native deps/ffmpeg easily
@@ -219,6 +246,73 @@ async function extractFrame(buffer, mediaType) {
     } catch (e) {
         return buf;
     }
+}
+
+async function pickImageBufferForGroqVision(mediaBuffer, mediaType, mediaThumbnail) {
+    if (mediaType === "video" || mediaType === "gif" || mediaType === "audio") {
+        if (mediaThumbnail && mediaThumbnail.length) return await compressForGroqVisionImage(mediaThumbnail);
+        return null;
+    }
+    if (!mediaBuffer || !mediaBuffer.length) {
+        if (mediaThumbnail && mediaThumbnail.length) return await compressForGroqVisionImage(mediaThumbnail);
+        return null;
+    }
+    return await compressForGroqVisionImage(mediaBuffer);
+}
+
+const VISION_MAZHAR_INSTRUCTION =
+    "You are Mazhar (DevX) on WhatsApp. Describe what you see in 2–4 short lines max. " +
+    "Sound human: mix Urdu/Hindi + English slang (yaar, bhai, scene, lit). " +
+    "Never say you are an AI, bot, or model. No 'How can I assist'. Answer the user's question if they asked one.";
+
+async function groqVisionDescribe(userMessage, imageJpegBuffer, groqKey, errorsList, mediaHint) {
+    const jpeg = imageJpegBuffer;
+    if (!jpeg || !jpeg.length || !groqKey) return null;
+    const base64Media = jpeg.toString("base64");
+    const hint = mediaHint ? `\n[Media type from WhatsApp: ${mediaHint}]` : "";
+    const apiContext = [
+        { role: "system", content: VISION_MAZHAR_INSTRUCTION },
+        {
+            role: "user",
+            content: [
+                { type: "text", text: (userMessage || "Kya scene hai is mein? Seedha bata.") + hint },
+                { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
+            ]
+        }
+    ];
+    const visionModels = [
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "meta-llama/llama-4-maverick-17b-128e-instruct",
+        "llama-3.2-11b-vision-preview",
+        "llama-3.2-90b-vision-preview"
+    ];
+    for (const vModel of visionModels) {
+        try {
+            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
+                body: JSON.stringify({
+                    model: vModel,
+                    messages: apiContext,
+                    temperature: 0.75,
+                    max_tokens: 512
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                const text = data?.choices?.[0]?.message?.content;
+                if (text) {
+                    console.log(`✅ [GROQ VISION] ${vModel}`);
+                    return text;
+                }
+            } else {
+                errorsList && errorsList.push(`Groq Vision (${vModel}): ${res.status}`);
+            }
+        } catch (e) {
+            errorsList && errorsList.push(`Groq Vision (${vModel}): ${e.message}`);
+        }
+    }
+    return null;
 }
 
 // --- UTILITIES ---
@@ -262,6 +356,16 @@ function prepareChatContext(memory, engine) {
     });
 }
 
+const GEMINI_MULTIMODAL_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-001",
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-pro-latest",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash-8b"
+];
+
 async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errorsList) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -269,10 +373,11 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errors
         return null;
     }
 
-    const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-8b", "gemini-1.5-pro-latest"];
+    const models = mediaBuffer ? GEMINI_MULTIMODAL_MODELS : ["gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro-latest", "gemini-1.5-flash", "gemini-1.5-pro"];
 
     const currentParts = [];
-    currentParts.push({ text: userMessage || "What is in this media? Respond naturally." });
+    const um = userMessage || "Kya scene hai? Mazhar ki tarah short, human jawab.";
+    currentParts.push({ text: um });
 
     if (mediaBuffer) {
         let mimeType = "image/jpeg";
@@ -295,8 +400,12 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errors
     
     const contents = [{ role: "user", parts: [{text: contextStr}, ...currentParts] }];
 
+    const mediaDetailNote = mediaBuffer
+        ? " If the user sent a photo/video/GIF/sticker, you may use up to 4 short lines to describe what you see — still Mazhar's casual voice, no robot talk."
+        : "";
+
     const body = { 
-        system_instruction: { parts: [{ text: memory[0].content }] },
+        system_instruction: { parts: [{ text: memory[0].content + mediaDetailNote }] },
         contents: contents,
         generationConfig: { temperature: 0.8, maxOutputTokens: 1024 }
     };
@@ -312,7 +421,13 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errors
 
             if (res.ok) {
                 const data = await res.json();
-                const text = data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+                const cand = data.candidates?.[0];
+                const text = cand?.content?.parts?.[0]?.text || null;
+                const block = cand?.finishReason === "SAFETY" || cand?.finishReason === "BLOCKLIST";
+                if (block) {
+                    errorsList && errorsList.push(`Gemini (${model}): blocked (${cand?.finishReason})`);
+                    continue;
+                }
                 if (text) {
                     console.log(`✅ [GEMINI SUCCESS] Engine: ${model}. Content Length: ${text.length}`);
                     return text;
@@ -351,65 +466,64 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
     let errorsList = [];
 
     try {
-        if (mediaBuffer && geminiKey) {
-            console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Gemini Fallback Chain`);
-            reply = await geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errorsList);
+        const thumbLen = mediaThumbnail
+            ? (Buffer.isBuffer(mediaThumbnail) ? mediaThumbnail.length : Buffer.from(mediaThumbnail).length)
+            : 0;
+        const hasAnyVisual = Boolean((mediaBuffer && mediaBuffer.length) || thumbLen > 0);
+
+        const MAX_GEMINI_INLINE_VIDEO = 12 * 1024 * 1024;
+        let geminiMediaBuffer = mediaBuffer && mediaBuffer.length ? mediaBuffer : null;
+        let geminiMediaType = mediaType;
+        let geminiUserMsg = userMessage;
+
+        if (!geminiMediaBuffer && thumbLen) {
+            geminiMediaBuffer = Buffer.isBuffer(mediaThumbnail) ? Buffer.from(mediaThumbnail) : Buffer.from(mediaThumbnail);
+            geminiMediaType = "image";
         }
 
-        if (!reply && (mediaBuffer || mediaThumbnail) && groqKey) {
-            console.log(`🔍 [ANALYSIS] Type: ${mediaType}, Engine: Groq Vision (Parallel Selection)`);
-            
-            // Priority 1: High Res Frame Extraction
-            // Priority 2: Instant WhatsApp Thumbnail
-            const visionBuffer = (await extractFrame(mediaBuffer, mediaType)) || mediaThumbnail;
-            
-            if (visionBuffer) {
-                const base64Media = Buffer.isBuffer(visionBuffer) ? visionBuffer.toString("base64") : visionBuffer;
-                const apiContext = [
-                    { role: "system", content: "Analyze the attached preview image and describe the core action/content briefly for a WhatsApp reply." }, 
-                    {
-                        role: "user",
-                        content: [
-                            { type: "text", text: userMessage || "Describe this media content." },
-                            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
-                        ]
-                    }
-                ];
+        if (
+            mediaBuffer?.length &&
+            (mediaType === "video" || mediaType === "gif") &&
+            mediaBuffer.length > MAX_GEMINI_INLINE_VIDEO &&
+            thumbLen
+        ) {
+            geminiMediaBuffer = Buffer.isBuffer(mediaThumbnail) ? Buffer.from(mediaThumbnail) : Buffer.from(mediaThumbnail);
+            geminiMediaType = "image";
+            geminiUserMsg = `${userMessage || ""}\n[Note: Original clip bara tha; yeh WhatsApp preview frame hai — isi se scene samjha ke jawab de.]`;
+        }
 
-                const visionModels = ["llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"];
-                for (const vModel of visionModels) {
-                    try {
-                        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
-                            body: JSON.stringify({ model: vModel, messages: apiContext, temperature: 0.7 })
-                        });
-                        if (res.ok) {
-                            const data = await res.json();
-                            reply = data?.choices?.[0]?.message?.content;
-                            if (reply) {
-                                console.log(`✅ [GROQ VISION SUCCESS] Engine: ${vModel} (Thumbnail/Frame)`);
-                                break;
-                            }
-                        } else {
-                            errorsList.push(`Groq Vision (${vModel}): Status ${res.status}`);
-                        }
-                    } catch (e) {
-                        errorsList.push(`Groq Vision (${vModel}): Fetch Failed`);
-                    }
-                }
-            } else {
-                errorsList.push(`Groq Vision: No viable buffer/thumbnail`);
+        if (hasAnyVisual && (geminiKey || groqKey)) {
+            console.log(`🔍 [ANALYSIS] Parallel multimodal Gemini+Groq — type=${mediaType}`);
+            const jobs = [];
+            if (geminiKey && geminiMediaBuffer && geminiMediaBuffer.length) {
+                jobs.push(
+                    geminiAiReply(geminiUserMsg, memory, geminiMediaBuffer, geminiMediaType, errorsList).then((t) => ({
+                        text: t
+                    }))
+                );
             }
-        }
-
-        // Thumbnail-only fallback when full download failed (e.g. Groq disabled, Gemini only)
-        if (!reply && !mediaBuffer && mediaThumbnail && geminiKey) {
-            let thumbBuf = mediaThumbnail;
-            if (!Buffer.isBuffer(thumbBuf)) thumbBuf = Buffer.from(thumbBuf);
-            if (thumbBuf.length) {
-                console.log("🔍 [ANALYSIS] Engine: Gemini (jpeg thumbnail only)");
-                reply = await geminiAiReply(userMessage, memory, thumbBuf, "image", errorsList);
+            if (groqKey) {
+                jobs.push(
+                    (async () => {
+                        const jpeg = await pickImageBufferForGroqVision(mediaBuffer, mediaType, mediaThumbnail);
+                        const text = await groqVisionDescribe(userMessage, jpeg, groqKey, errorsList, mediaType);
+                        return { text };
+                    })()
+                );
+            }
+            const settled = await Promise.allSettled(jobs);
+            const candidates = [];
+            for (const s of settled) {
+                if (s.status !== "fulfilled" || !s.value?.text || !String(s.value.text).trim()) continue;
+                const raw = String(s.value.text).trim();
+                const washed = washAiReply(raw);
+                if (!washed || washed.length < 2) continue;
+                candidates.push({ raw, score: scorePersonaReply(washed) + Math.min(30, Math.floor(raw.length / 40)) });
+            }
+            if (candidates.length) {
+                candidates.sort((a, b) => b.score - a.score);
+                reply = candidates[0].raw;
+                console.log(`🏆 [VISION MERGE] Picked best of ${candidates.length} engine outputs (score=${candidates[0].score})`);
             }
         }
 
@@ -417,10 +531,10 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             console.log("🔍 [ANALYSIS] Engine: Groq Text Fallback Chain");
             
             let apiContext;
-            if (mediaBuffer) {
+            if (hasAnyVisual) {
                 const safeHistory = prepareChatContext(memory.slice(-4), "groq");
                 apiContext = [memory[0], ...safeHistory];
-                const msg = `[Sent an Image/Video/GIF, but net is slow. Caption: "${userMessage}"]`;
+                const msg = `[User ne ${mediaType || "media"} bheji; vision decode fail ya APIs ne scene nahi pakda. Caption: "${userMessage}". Mazhar ki tarah best guess + short reply.]`;
                 if (apiContext.length > 1 && apiContext[apiContext.length - 1].role === "user") {
                     apiContext[apiContext.length - 1].content += "\n" + msg;
                 } else {
@@ -472,39 +586,52 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             }
         }
 
-        if (!reply && !mediaBuffer && geminiKey) {
+        if (!reply && !hasAnyVisual && geminiKey) {
             console.log("🔍 [ANALYSIS] Engine: Gemini Text Fallback Chain");
             reply = await geminiAiReply(userMessage, memory, null, null, errorsList);
         }
 
         // 4. HYPER-INTELLIGENCE COMPETITIVE SELECTION (PARALLEL SEARCH)
-        if (!reply && !mediaBuffer) {
-            console.log("🔍 [ANALYSIS] Brainstorming: 5 Elite Models Competing...");
-            const brainstormingResults = await Promise.allSettled([
-                // Brain 1: Groq Llama 3 70B (Speed)
-                fetch("https://api.groq.com/openai/v1/chat/completions", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
-                    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [memory[0], ...prepareChatContext(memory.slice(-4), "groq"), {role: "user", content: userMessage}], temperature: 0.8 })
-                }).then(r => r.json()).then(d => d.choices[0].message.content),
-
-                // Brain 2: Gemini 1.5 Pro (Logic)
-                geminiAiReply(userMessage, memory, null, null, []),
-
-                // Brain 3: Pollinations OpenAI (Creative)
+        if (!reply && !hasAnyVisual) {
+            console.log("🔍 [ANALYSIS] Brainstorming: multi-model parallel...");
+            const brainstormTasks = [];
+            if (groqKey) {
+                brainstormTasks.push(
+                    fetch("https://api.groq.com/openai/v1/chat/completions", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${groqKey}` },
+                        body: JSON.stringify({
+                            model: "llama-3.3-70b-versatile",
+                            messages: [memory[0], ...prepareChatContext(memory.slice(-4), "groq"), { role: "user", content: userMessage }],
+                            temperature: 0.8
+                        })
+                    })
+                        .then((r) => r.json())
+                        .then((d) => d.choices?.[0]?.message?.content)
+                );
+            }
+            if (geminiKey) {
+                brainstormTasks.push(geminiAiReply(userMessage, memory, null, null, []));
+            }
+            brainstormTasks.push(
                 fetch("https://text.pollinations.ai/", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ messages: [memory[0], ...prepareChatContext(memory.slice(-4), "groq"), {role: "user", content: userMessage}], model: "openai" })
-                }).then(r => r.text()),
-
-                // Brain 4: Pollinations Mistral (Style)
+                    body: JSON.stringify({
+                        messages: [memory[0], ...prepareChatContext(memory.slice(-4), "groq"), { role: "user", content: userMessage }],
+                        model: "openai"
+                    })
+                }).then((r) => r.text()),
                 fetch("https://text.pollinations.ai/", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ messages: [memory[0], ...prepareChatContext(memory.slice(-4), "groq"), {role: "user", content: userMessage}], model: "mistral" })
-                }).then(r => r.text())
-            ]);
+                    body: JSON.stringify({
+                        messages: [memory[0], ...prepareChatContext(memory.slice(-4), "groq"), { role: "user", content: userMessage }],
+                        model: "mistral"
+                    })
+                }).then((r) => r.text())
+            );
+            const brainstormingResults = await Promise.allSettled(brainstormTasks);
 
             let candidates = brainstormingResults
                 .filter(res => res.status === "fulfilled" && res.value)
@@ -520,8 +647,8 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
             }
         }
 
-        if (!reply && (mediaBuffer || mediaThumbnail)) {
-            return "Yaar ye file khul nahi rahi ya corrupt hai, dobara try karo ya waps bhejo.";
+        if (!reply && hasAnyVisual) {
+            return "Yaar is media ka scene abhi lock nahi hua — .env mein GEMINI_API_KEY aur GROQ_API_KEY dono set kar, phir dubara bhej. Agar phir bhi ho to file choti kar ke try kar.";
         } else if (!reply) {
             return "Yaar net ka scene kharab hai, dobara query karo.";
         }
@@ -627,4 +754,17 @@ async function addAdminMessageToMemory(jid, text) {
     } catch (err) {}
 }
 
-module.exports = { mazharAiReply, transcribeVoice, stopAiStatus, setAdminPrompt, toggleUserAi, isAiEnabled, getAllContacts, getFullHistory, setUserSpecificPrompt, addAdminMessageToMemory };
+module.exports = {
+    mazharAiReply,
+    transcribeVoice,
+    stopAiStatus,
+    setAdminPrompt,
+    toggleUserAi,
+    isAiEnabled,
+    getAllContacts,
+    getFullHistory,
+    setUserSpecificPrompt,
+    addAdminMessageToMemory,
+    getMemory,
+    saveMemory
+};

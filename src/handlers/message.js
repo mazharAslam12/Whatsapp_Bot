@@ -166,6 +166,15 @@ async function handleMessage(sock, msg) {
                 console.error("❌ [MEDIA DOWNLOAD ERROR]", e.message);
             }
 
+            if (!mediaBuffer || !mediaBuffer.length) {
+                try {
+                    mediaBuffer = await downloadMediaMessage(msg, "buffer", {}, { logger: { level: "silent" } });
+                    if (mediaBuffer?.length) console.log(`✅ [SYSTEM] Media downloaded (fallback path) ${mediaBuffer.length} bytes`);
+                } catch (e2) {
+                    console.warn("⚠️ [MEDIA] Fallback download also failed:", e2.message);
+                }
+            }
+
             try {
                 const extensionMap = { image: "jpg", video: "mp4", audio: "mp3", document: "bin", sticker: "webp", gif: "gif" };
                 const extension = extensionMap[mediaType] || "bin";
@@ -259,7 +268,15 @@ async function handleMessage(sock, msg) {
         // We only trigger AI if it's a private message or the bot is mentioned/replied to
         const isGroup = jid.endsWith("@g.us");
         const isMentioned = text.includes("@" + sock.user.id.split(":")[0]);
-        const isReplyToMe = msg.message.extendedTextMessage?.contextInfo?.participant === sock.user.id;
+        const replyCtx =
+            content.extendedTextMessage?.contextInfo ||
+            content.imageMessage?.contextInfo ||
+            content.videoMessage?.contextInfo ||
+            content.documentMessage?.contextInfo ||
+            content.audioMessage?.contextInfo ||
+            content.stickerMessage?.contextInfo ||
+            null;
+        const isReplyToMe = replyCtx?.participant === sock.user.id;
 
         if (isGroup && !isMentioned && !isReplyToMe) return;
 
@@ -270,13 +287,39 @@ async function handleMessage(sock, msg) {
         }
 
         // Strip mention if it exists
+        const hasVisualMedia =
+            mediaTypes.includes(msgType) &&
+            (mediaBuffer?.length > 0 || mediaThumbnail?.length > 0);
+        let userLine = prompt.replace("@" + sock.user.id.split(":")[0], "").trim() + quotedContext;
+        if (!userLine.trim() && hasVisualMedia) {
+            const label =
+                mediaType === "gif"
+                    ? "GIF/animation"
+                    : mediaType === "video"
+                      ? "video"
+                      : mediaType === "image"
+                        ? "photo"
+                        : mediaType === "sticker"
+                          ? "sticker"
+                          : "media";
+            userLine = `[User ne WhatsApp pe ${label} bheji hai — caption khali hai. Dekh ke Mazhar ki tarah short, human, mix Urdu/English mein jawab de. Kya scene hai, kya dikh raha hai — seedha bata.]`;
+        }
 
-        const finalPrompt = prompt.replace("@" + sock.user.id.split(":")[0], "").trim() + quotedContext;
-        if (!finalPrompt && !mediaBuffer) return;
+        if (!userLine.trim() && !mediaBuffer?.length && !mediaThumbnail?.length) return;
 
-        const aiReply = await mazharAiReply(finalPrompt, jid, pushName, mediaBuffer, mediaData, mediaThumbnail);
+        let aiReply = await mazharAiReply(userLine, jid, pushName, mediaBuffer, mediaData, mediaThumbnail);
 
-        console.log(`💎 [AI-BRAIN] Raw: ${aiReply.substring(0, 50)}...`);
+        if (aiReply == null || aiReply === undefined) {
+            return;
+        }
+        if (String(aiReply).trim() === "") {
+            await safeSendMessage(sock, jid, {
+                text: "Yaar abhi is media ka scene clear nahi hua — GEMINI_API_KEY + GROQ_API_KEY .env mein check kar, phir dubara bhej."
+            });
+            return;
+        }
+
+        console.log(`💎 [AI-BRAIN] Raw: ${String(aiReply).substring(0, 50)}...`);
 
 
         // --- MULTIPLE AGENTIC TRIGGERS ---
