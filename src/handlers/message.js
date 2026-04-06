@@ -1,7 +1,7 @@
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 const fs = require("fs").promises;
 const path = require("path");
-const { mazharAiReply, isAiEnabled, transcribeVoice, buildLanguageHint, userPauseCommand } = require("../services/ai");
+const { mazharAiReply, isAiEnabled, transcribeVoice, buildLanguageHint, userPauseCommand, pauseAiTemporarily, toggleUserAi } = require("../services/ai");
 const { searchImages } = require("../services/image");
 const events = require("../lib/events");
 
@@ -22,6 +22,52 @@ const BURST_WINDOW_MS = 1200;
 const pendingBurstByJid = new Map(); // jid -> { timer, items: { plain, singleUserLine }[], pushName }
 const lastMediaTagByJid = new Map(); // jid -> { key, at }
 const MEDIA_TAG_COOLDOWN_MS = 45 * 60 * 1000;
+
+// Rude handling ladder (C then B then A): clapback → warning → mute 30m → permanent mute
+const RUDE_WINDOW_MS = 48 * 60 * 60 * 1000;
+const rudeStateByJid = new Map(); // jid -> { strikes, lastAt }
+
+function detectRudeTowardOwner(text) {
+    const t = String(text || "").toLowerCase();
+    if (!t.trim()) return false;
+    // Profanity / insult list (broad but simple)
+    const rude =
+        /\b(fuck|f\*+k|motherf\w*|bitch|bastard|asshole|idiot|moron|stupid|shit|chutiya|chutya|bhenchod|behenchod|madarchod|mc\b|bc\b|randi|gandu|harami|kutta|kutti)\b/i.test(
+            t
+        );
+    if (!rude) return false;
+
+    // Targeting: mentions Mazhar/DevX OR direct "you/tu" style in same message
+    const target =
+        /\b(mazhar|devx|dev x)\b/i.test(t) ||
+        /\b(you|u|ur|your|tu|tum|tera|teri|tujhe|aap)\b/i.test(t);
+    return target;
+}
+
+function rudeLangKeyFromHint(langHint) {
+    return detectFeelingLangFromHint(langHint);
+}
+
+function rudeReplyForStage(langKey, stage) {
+    // stage: 1 clapback, 2 warning, 3 mute 30m, 4 perm mute
+    if (langKey === "en") {
+        if (stage === 1) return "Easy. Talk normal, don’t get loud behind a screen.";
+        if (stage === 2) return "Last warning: keep it respectful. Next = muted.";
+        if (stage === 3) return "Muted for 30 minutes. Come back with respect.";
+        return "Muted permanently. Not entertaining this.";
+    }
+    if (langKey === "ur_ar") {
+        if (stage === 1) return "اوئے آہستہ۔ زبان ٹھیک رکھو۔";
+        if (stage === 2) return "آخری وارننگ: بدتمیزی بند۔ اگلی بار mute۔";
+        if (stage === 3) return "30 منٹ کے لیے mute۔ عزت سے بات کرو۔";
+        return "ہمیشہ کے لیے mute۔ بس۔";
+    }
+    // Roman/bilingual
+    if (stage === 1) return "Aahista. Zaban theek rakho.";
+    if (stage === 2) return "Last warning: tameez se. Next = mute.";
+    if (stage === 3) return "30 min mute. Baad mein respect se baat karna.";
+    return "Permanent mute. Bas khatam.";
+}
 
 function detectFeelingLangFromHint(hint) {
     const h = hint || "";
@@ -417,6 +463,36 @@ async function handleMessage(sock, msg) {
         // --- MANUAL MODE CHECK ---
         if (!isAiEnabled(jid)) {
             console.log(`👤 [MANUAL MODE] AI ignored for ${jid} (Admin is in control)`);
+            return;
+        }
+
+        // --- RUDE LADDER (private chats only) ---
+        if (!isGroup && detectRudeTowardOwner(text || prompt)) {
+            const now = Date.now();
+            const prev = rudeStateByJid.get(jid);
+            const recent = prev && now - prev.lastAt < RUDE_WINDOW_MS ? prev : { strikes: 0, lastAt: 0 };
+            const strikes = Math.min((recent.strikes || 0) + 1, 4);
+            rudeStateByJid.set(jid, { strikes, lastAt: now });
+
+            const langHint0 = buildLanguageHint((text || "") + " " + (prompt || ""));
+            const lk = rudeLangKeyFromHint(langHint0);
+
+            if (strikes === 1) {
+                await safeSendMessage(sock, jid, { text: rudeReplyForStage(lk, 1) }, { quoted: msg });
+                return;
+            }
+            if (strikes === 2) {
+                await safeSendMessage(sock, jid, { text: rudeReplyForStage(lk, 2) }, { quoted: msg });
+                return;
+            }
+            if (strikes === 3) {
+                pauseAiTemporarily(jid, 30 * 60 * 1000);
+                await safeSendMessage(sock, jid, { text: rudeReplyForStage(lk, 3) }, { quoted: msg });
+                return;
+            }
+            // strike 4+
+            toggleUserAi(jid, false);
+            await safeSendMessage(sock, jid, { text: rudeReplyForStage(lk, 4) }, { quoted: msg });
             return;
         }
 
