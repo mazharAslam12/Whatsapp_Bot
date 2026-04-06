@@ -17,6 +17,10 @@ const FEELING_COOLDOWN_MS = 90 * 60 * 1000;
 const pendingFeelingByJid = new Map();
 const lastFeelingPromptAt = new Map();
 
+// Burst messages: if user sends multiple texts quickly, answer step-by-step in one reply.
+const BURST_WINDOW_MS = 1200;
+const pendingBurstByJid = new Map(); // jid -> { timer, items: { plain, singleUserLine }[], pushName }
+
 function detectFeelingLangFromHint(hint) {
     const h = hint || "";
     if (/Urdu\/Arabic script/i.test(h)) return "ur_ar";
@@ -471,6 +475,59 @@ async function handleMessage(sock, msg) {
             aiMediaBuffer = null;
             aiThumb = null;
             if (aiMediaData) aiMediaData = { ...aiMediaData, type: "audio_transcribed" };
+        }
+
+        // --- BURST COMBINE (text-only): reply once, step-by-step ---
+        const isTextOnly = !mediaTypes.includes(msgType);
+        const isEligibleForBurst =
+            isTextOnly &&
+            !isGroup &&
+            !pendingFeelingByJid.has(jid) &&
+            !documentExtractedText &&
+            String(prompt || "").trim().length > 0;
+
+        if (isEligibleForBurst) {
+            const cleanLine = String(prompt || "")
+                .replace("@" + sock.user.id.split(":")[0], "")
+                .trim();
+            if (cleanLine) {
+                const existing = pendingBurstByJid.get(jid) || { timer: null, items: [], pushName };
+                existing.items.push({ plain: cleanLine, singleUserLine: userLine });
+                existing.pushName = pushName;
+                if (existing.timer) clearTimeout(existing.timer);
+                existing.timer = setTimeout(async () => {
+                    try {
+                        const b = pendingBurstByJid.get(jid);
+                        pendingBurstByJid.delete(jid);
+                        if (!b || !b.items || b.items.length === 0) return;
+
+                        let r = null;
+                        if (b.items.length === 1) {
+                            // Single message: reply normally (but after a short debounce).
+                            const one = b.items[0];
+                            r = await mazharAiReply(one.singleUserLine, jid, b.pushName || "User", null, null, null);
+                        } else {
+                            const combined = b.items.map((x) => x.plain).slice(-8); // cap to avoid huge prompts
+                            const numbered = combined.map((t, i) => `${i + 1}) ${t}`).join("\n");
+                            const langHint2 = buildLanguageHint(numbered);
+                            const burstPrompt =
+                                langHint2 +
+                                "User sent multiple messages quickly. Reply in the same language and answer **step-by-step**, matching each line.\n\n" +
+                                numbered;
+                            r = await mazharAiReply(burstPrompt, jid, b.pushName || "User", null, null, null);
+                        }
+                        if (r && String(r).trim()) {
+                            await safeSendMessage(sock, jid, { text: String(r).trim() }, { quoted: msg });
+                        }
+                    } catch (e) {
+                        console.error("❌ [BURST REPLY ERROR]", e.message);
+                    }
+                }, BURST_WINDOW_MS);
+                pendingBurstByJid.set(jid, existing);
+
+                // Let the timer flush. Don't answer immediately for the first message in a burst.
+                return;
+            }
         }
 
         let aiReply = await mazharAiReply(userLine, jid, pushName, aiMediaBuffer, aiMediaData, aiThumb);

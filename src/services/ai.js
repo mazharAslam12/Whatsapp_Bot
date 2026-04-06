@@ -123,7 +123,7 @@ function buildLanguageHint(text) {
         return "[LANGUAGE: User wrote in Urdu/Arabic script — reply in that script naturally.]\n";
     }
     if (hasLatin && !hasArabicScript && romanUrduHints) {
-        return "[LANGUAGE: User wrote **Roman Urdu** — reply in Roman Urdu (same casual style), not formal textbook English.\n";
+        return "[LANGUAGE: User wrote **Roman Urdu** — reply in Roman Urdu (same casual style), not formal textbook English.]\n";
     }
     if (hasLatin && !hasArabicScript) {
         return "[LANGUAGE: User wrote in English — reply in **high-level native English** (natural, fluent, can use casual native shortcuts like ngl/tbh/fr/lowkey when tone fits). Not stiff textbook English.]\n";

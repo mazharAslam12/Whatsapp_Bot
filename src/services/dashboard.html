@@ -711,6 +711,16 @@
                     <div id="status-dot" class="dot"></div>
                     <span id="status-label" style="font-size:0.8rem; font-weight:800; color:var(--text-muted)">DISCONNECTED</span>
                 </div>
+                <div style="margin-top: 14px; background: rgba(0,0,0,0.35); border:1px solid rgba(0,242,254,0.18); border-radius:22px; padding:14px 16px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                        <div style="font-size:0.7rem; font-weight:900; letter-spacing:0.12em; color:var(--primary-cyan); text-transform:uppercase;">
+                            <i class="fas fa-chart-line"></i> Ops Snapshot
+                        </div>
+                        <div id="telemetry-mini" style="font-size:0.7rem; color:var(--text-muted); font-weight:800;"></div>
+                    </div>
+                    <canvas id="contacts-chart" width="320" height="96" style="width:100%; height:96px; margin-top:10px; border-radius:16px;"></canvas>
+                    <div id="contacts-chart-legend" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; font-size:0.65rem; font-weight:800; color:var(--text-muted);"></div>
+                </div>
                 <div style="margin-top: 16px;">
                     <button onclick="toggleOverridePanel()" class="btn btn-ghost" style="width:100%; font-size:0.7rem; padding: 12px;"><i class="fas fa-microchip"></i> ⚙️ Override Engine</button>
                     <div id="override-panel" style="display:none; margin-top: 12px; background: rgba(0,0,0,0.6); padding: 18px; border-radius: 24px; border: 1px solid var(--primary-cyan);">
@@ -943,7 +953,65 @@
         knownContacts = data;
         renderContacts();
         syncAiButtonForCurrent();
+        renderSnapshotChart();
     });
+
+    socket.on('telemetry', (data) => {
+        const t = document.getElementById('telemetry-mini');
+        if (t && data) t.textContent = `${data.heap || ''} heap · ${data.rss || ''} rss · ${data.uptime || ''} up`;
+    });
+
+    function renderSnapshotChart() {
+        const c = document.getElementById('contacts-chart');
+        const legend = document.getElementById('contacts-chart-legend');
+        if (!c) return;
+        const ctx = c.getContext('2d');
+        if (!ctx) return;
+
+        const total = knownContacts.length;
+        const muted = knownContacts.filter(x => x.aiEnabled === false).length;
+        const paused = knownContacts.filter(x => x.isPaused).length;
+        const override = knownContacts.filter(x => x.overrideActive).length;
+        const active = Math.max(total - muted, 0);
+
+        const bars = [
+            { label: 'Total', val: total, color: 'rgba(0,242,254,0.85)' },
+            { label: 'AI ON', val: active, color: 'rgba(34,197,94,0.75)' },
+            { label: 'Muted', val: muted, color: 'rgba(255,51,102,0.8)' },
+            { label: 'Paused', val: paused, color: 'rgba(251,191,36,0.85)' },
+            { label: 'Override', val: override, color: 'rgba(139,92,246,0.8)' }
+        ];
+
+        ctx.clearRect(0, 0, c.width, c.height);
+        // background
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(0, 0, c.width, c.height);
+
+        const max = Math.max(...bars.map(b => b.val), 1);
+        const padX = 10;
+        const padY = 10;
+        const w = c.width - padX * 2;
+        const h = c.height - padY * 2;
+        const barW = w / bars.length;
+
+        bars.forEach((b, i) => {
+            const x = padX + i * barW + 6;
+            const bw = Math.max(barW - 12, 10);
+            const bh = Math.round((b.val / max) * h);
+            const y = padY + (h - bh);
+            ctx.fillStyle = b.color;
+            ctx.fillRect(x, y, bw, bh);
+            ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            ctx.font = '700 11px Inter, sans-serif';
+            ctx.fillText(String(b.val), x + 2, Math.max(y - 4, 12));
+        });
+
+        if (legend) {
+            legend.innerHTML = bars
+                .map(b => `<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${b.color};margin-right:6px;vertical-align:middle"></span>${b.label}</span>`)
+                .join('');
+        }
+    }
 
     function syncAiButtonForCurrent() {
         const btn = document.getElementById('ai-toggle-btn');
@@ -1007,11 +1075,14 @@
                 statusColor = '#8b5cf6';
             }
             
+            const phoneLine = c.phone || (c.jid || '').split('@')[0] || '';
+            const jidLine = c.jid || '';
             card.innerHTML = `
                 <div class="avatar-box"><img src="${avatar}" loading="lazy"></div>
                 <div class="contact-detail">
                     <div class="contact-user">${escapeHtml(c.name)}</div>
-                    <div class="contact-meta" style="opacity:0.85;font-family:monospace;font-size:0.65rem">${escapeHtml(c.phone || c.jid.split('@')[0])}</div>
+                    <div class="contact-meta" style="opacity:0.9;font-family:monospace;font-size:0.65rem">${escapeHtml(phoneLine)}</div>
+                    <div class="contact-meta" style="opacity:0.55;font-family:monospace;font-size:0.6rem">${escapeHtml(jidLine)}</div>
                     <div class="contact-meta" style="color:${statusColor}">${statusIcon} ${statusText}</div>
                 </div>
             `;
