@@ -231,21 +231,27 @@ function buildMainMenu() {
     return [
         "💎 *Mazhar DevX Elite v2.0*",
         "────────────────────",
-        "🤖 *Elite AI (Autonomous Reasoning)*",
-        "   • *Deep Web Search* – Instant global info",
-        "   • *Code Pulse* – AI reads/writes its own code",
-        "   • *Lead Gen* – Auto-captures project interests",
+        "🤖 *Mazhar AI (Conversation Memory Enabled)*",
+        "   • Just type: *mazhar <your question>*",
+        "   • *elite ai* – personality check",
         "",
         "📂 *File Sandbox*",
-        "   • *fs list* – Manage your private files",
+        "   • *fs help* – manage your files",
+        "   • *fs list* – see your sandbox",
         "",
         "🎵 *Entertainment*",
-        "   • *song <name>* – HQ MP3 Download",
-        "   • *video <name>* – HQ MP4 Download",
-        "   • *image <query>* – Dynamic web search",
+        "   • *song <name>* / *video <name>*",
+        "   • *image <query>* – web search",
         "",
         "📊 *System & Stats*",
-        "   • *status* / *stats* / *health*",
+        "   • *status* – see online users",
+        "   • *stats* – your chat history",
+        "   • *gallery* – see media stats",
+        "   • *health* – system performance",
+        "",
+        "💡 *Fun & Info*",
+        "   • *joke* / *quote* / *time*",
+        "   • */premium* – about Mazhar.DevX",
         "",
         "👑 *Owner*: mazhar.devx",
         "────────────────────",
@@ -445,7 +451,7 @@ async function handleMessage(sock, msg) {
             return;
         }
 
-        if (text === "/" || lower === "/menu" || lower === "/help") {
+        if (text === "/" || lower === "/menu" || lower === "/help" || lower === "menu" || lower === "help") {
             await safeSendMessage(sock, jid, { text: buildMainMenu() });
             return;
         }
