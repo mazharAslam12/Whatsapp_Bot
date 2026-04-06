@@ -20,6 +20,8 @@ const lastFeelingPromptAt = new Map();
 // Burst messages: if user sends multiple texts quickly, answer step-by-step in one reply.
 const BURST_WINDOW_MS = 1200;
 const pendingBurstByJid = new Map(); // jid -> { timer, items: { plain, singleUserLine }[], pushName }
+const lastMediaTagByJid = new Map(); // jid -> { key, at }
+const MEDIA_TAG_COOLDOWN_MS = 45 * 60 * 1000;
 
 function detectFeelingLangFromHint(hint) {
     const h = hint || "";
@@ -196,6 +198,7 @@ async function handleMessage(sock, msg) {
 
         const msgType = Object.keys(content)[0];
         const jid = msg.key.remoteJid;
+        const fromMe = Boolean(msg.key.fromMe);
         const pushName = msg.pushName || "User";
         const phoneNumber = jid.split("@")[0];
 
@@ -318,44 +321,48 @@ async function handleMessage(sock, msg) {
             }
         }
 
-        // --- PROFILE & IDENTITY SYNC ---
+        // --- PROFILE & IDENTITY SYNC (only for inbound user messages) ---
         let profilePic = profilePicCache.get(jid) || null;
-        try {
-            // Force fetch if not in cache or every few messages
-            if (!profilePic || Math.random() > 0.8) {
-                profilePic = await sock.profilePictureUrl(jid, 'image').catch(() => null);
-                if (profilePic) {
-                    profilePicCache.set(jid, profilePic);
-                    // Save profile pic locally for dashboard use
-                    const safeJidName = jid.replace(/[:@.]/g, "_");
-                    const profileDir = path.join(FILE_BASE_DIR, "profiles");
-                    await fs.mkdir(profileDir, { recursive: true });
-                    
-                    const picRes = await fetch(profilePic);
-                    if (picRes.ok) {
-                        const picBuffer = Buffer.from(await picRes.arrayBuffer());
-                        await fs.writeFile(path.join(profileDir, `${safeJidName}.jpg`), picBuffer);
-                        profilePic = `/media/profiles/${safeJidName}.jpg`;
-                    }
-                    
-                    // Update user metadata JSON
-                    const { getProfile } = require("../services/profile");
-                    const profile = await getProfile(jid, pushName);
-                    profile.profilePic = profilePic;
-                    const profilePath = path.join(FILE_BASE_DIR, "profiles", `${safeJidName}.json`);
-                    await fs.writeFile(profilePath, JSON.stringify(profile, null, 2));
-                }
-            }
-        } catch (e) {}
+        if (!fromMe) {
+            try {
+                // Force fetch if not in cache or every few messages
+                if (!profilePic || Math.random() > 0.8) {
+                    profilePic = await sock.profilePictureUrl(jid, "image").catch(() => null);
+                    if (profilePic) {
+                        profilePicCache.set(jid, profilePic);
+                        // Save profile pic locally for dashboard use
+                        const safeJidName = jid.replace(/[:@.]/g, "_");
+                        const profileDir = path.join(FILE_BASE_DIR, "profiles");
+                        await fs.mkdir(profileDir, { recursive: true });
 
-        events.emit("wa_message", { 
-            text: text, 
-            senderName: pushName, 
-            senderNumber: phoneNumber, 
-            jid: jid,
-            media: mediaData,
-            profilePic: profilePic || `https://ui-avatars.com/api/?name=${encodeURIComponent(pushName)}&background=0a0f1f&color=00f2fe&bold=true`
-        });
+                        const picRes = await fetch(profilePic);
+                        if (picRes.ok) {
+                            const picBuffer = Buffer.from(await picRes.arrayBuffer());
+                            await fs.writeFile(path.join(profileDir, `${safeJidName}.jpg`), picBuffer);
+                            profilePic = `/media/profiles/${safeJidName}.jpg`;
+                        }
+
+                        // Update user metadata JSON
+                        const { getProfile } = require("../services/profile");
+                        const profile = await getProfile(jid, pushName);
+                        profile.profilePic = profilePic;
+                        const profilePath = path.join(FILE_BASE_DIR, "profiles", `${safeJidName}.json`);
+                        await fs.writeFile(profilePath, JSON.stringify(profile, null, 2));
+                    }
+                }
+            } catch (e) {}
+
+            events.emit("wa_message", {
+                text: text,
+                senderName: pushName,
+                senderNumber: phoneNumber,
+                jid: jid,
+                media: mediaData,
+                profilePic:
+                    profilePic ||
+                    `https://ui-avatars.com/api/?name=${encodeURIComponent(pushName)}&background=0a0f1f&color=00f2fe&bold=true`
+            });
+        }
 
 
         const lower = text.toLowerCase();
@@ -445,8 +452,20 @@ async function handleMessage(sock, msg) {
                 `[User sent file: "${fn}". Read extracted content and answer in the same language they use.]\n---\n${documentExtractedText}\n---`;
         }
         const langHint = buildLanguageHint(prompt + rawText);
-        let userLine = langHint + prompt.replace("@" + sock.user.id.split(":")[0], "").trim() + quotedContext;
-        if (!userLine.replace(/\[LANGUAGE:[^\]]*\]/g, "").trim() && hasVisualMedia) {
+        const plainPrompt = prompt.replace("@" + sock.user.id.split(":")[0], "").trim();
+        let userLine = langHint + plainPrompt + quotedContext;
+
+        // Only analyze media when user asked about it / caption is empty.
+        const wantsVisualAnalysis =
+            hasVisualMedia &&
+            (!plainPrompt ||
+                plainPrompt.length < 3 ||
+                /\b(what\s+is\s+this|what\s+happening|describe|explain|caption|meme|meaning|rate|react|is\s+it\s+good|kya\s+hai|ye\s+kya|samjhao|dekho|batao|scene)\b/i.test(
+                    plainPrompt
+                ) ||
+                /[?؟]$/.test(plainPrompt));
+
+        if (!userLine.replace(/\[LANGUAGE:[^\]]*\]/g, "").trim() && wantsVisualAnalysis) {
             const label =
                 mediaType === "gif"
                     ? "GIF/animation"
@@ -463,9 +482,9 @@ async function handleMessage(sock, msg) {
         const userLineForGate = userLine.replace(/\[LANGUAGE:[^\]]*\]\s*/g, "").trim();
         if (!userLineForGate && !mediaBuffer?.length && !mediaThumbnail?.length && !documentExtractedText) return;
 
-        let aiMediaBuffer = mediaBuffer;
+        let aiMediaBuffer = wantsVisualAnalysis ? mediaBuffer : null;
         let aiMediaData = mediaData;
-        let aiThumb = mediaThumbnail;
+        let aiThumb = wantsVisualAnalysis ? mediaThumbnail : null;
         if (documentExtractedText && msgType === "documentMessage") {
             aiMediaBuffer = null;
             aiThumb = null;
@@ -654,6 +673,11 @@ async function handleMessage(sock, msg) {
         // 3. MEDIA TRIGGERS
         const imgMatch = aiReply.match(/\[IMG_SEARCH:\s*(.*?)\]/i);
         if (imgMatch) {
+            const q = (imgMatch[1] || "").trim().toLowerCase();
+            const last = lastMediaTagByJid.get(jid);
+            if (last && last.key === `img:${q}` && Date.now() - last.at < MEDIA_TAG_COOLDOWN_MS) {
+                // Skip repeating the same image query too often
+            } else {
             const { searchWebImages } = require("../services/search");
             const urls = await searchWebImages(imgMatch[1], 1);
             if (urls?.[0]) {
@@ -671,10 +695,12 @@ async function handleMessage(sock, msg) {
                             history[history.length - 1].media = { type: "image", url: urls[0] };
                             await saveMemory(jid, history);
                         }
+                        lastMediaTagByJid.set(jid, { key: `img:${q}`, at: Date.now() });
                     }
                 } catch (e) {
                     console.error("❌ Image buffer fetch fail:", e.message);
                 }
+            }
             }
         }
 
@@ -682,6 +708,10 @@ async function handleMessage(sock, msg) {
         if (gifMatch) {
             const { getGif } = require("../services/gif");
             const category = gifMatch[1].toLowerCase();
+            const last = lastMediaTagByJid.get(jid);
+            if (last && last.key === `gif:${category}` && Date.now() - last.at < MEDIA_TAG_COOLDOWN_MS) {
+                // Skip repeating same GIF category too often
+            } else {
             const gifData = await getGif(category);
 
             if (gifData && gifData.url) {
@@ -715,9 +745,11 @@ async function handleMessage(sock, msg) {
                         history[history.length - 1].media = { type: "gif", url: gifData.url };
                         await saveMemory(jid, history);
                     }
+                    lastMediaTagByJid.set(jid, { key: `gif:${category}`, at: Date.now() });
                 } catch (e) {
                     console.error("❌ GIF fetch/send failed:", e.message);
                 }
+            }
             }
         }
 

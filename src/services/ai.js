@@ -266,12 +266,41 @@ function washAiReply(text) {
         clean = clean.replace(regex, "");
     });
 
+    // De-dup repeated words and repeated sentences (common LLM glitch)
+    clean = dedupeRepetition(clean);
+
     // If the reply is now empty or too robotic, force a human fallback
     if (clean.trim().length < 2 || clean.toLowerCase().includes("assistant") || clean.toLowerCase().includes("virtual")) {
         return "Main Mazhar hoon jani, kya haal hai?";
     }
 
     return clean.replace(/\s+/g, " ").trim();
+}
+
+function dedupeRepetition(input) {
+    const s = String(input || "");
+    if (!s.trim()) return s;
+
+    // Collapse repeated words: "yes yes yes" -> "yes yes"
+    let out = s.replace(/\b(\w+)(\s+\1){2,}\b/gi, "$1 $1");
+
+    // Remove duplicated short phrases: "I got you. I got you." -> "I got you."
+    const parts = out.split(/(?<=[.!?؟])\s+/);
+    const seen = new Set();
+    const kept = [];
+    for (const p of parts) {
+        const norm = p.toLowerCase().replace(/\s+/g, " ").trim();
+        if (!norm) continue;
+        // only dedupe reasonable-length sentences
+        if (norm.length > 12 && seen.has(norm)) continue;
+        seen.add(norm);
+        kept.push(p.trim());
+    }
+    out = kept.join(" ");
+
+    // Prevent runaway "!!!" / "???" spam
+    out = out.replace(/([!?؟])\1{3,}/g, "$1$1");
+    return out;
 }
 
 function inferGenderFromName(name) {
