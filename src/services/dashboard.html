@@ -148,6 +148,32 @@
             scrollbar-width: thin;
         }
 
+        .contact-search {
+            margin: 14px 16px 0;
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid var(--glass-border);
+            border-radius: 22px;
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .contact-search input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: #fff;
+            font-weight: 700;
+            font-size: 0.78rem;
+        }
+
+        .contact-search input::placeholder {
+            color: rgba(160, 179, 217, 0.8);
+            font-weight: 700;
+        }
+
         .contact-card {
             display: flex;
             align-items: center;
@@ -738,6 +764,11 @@
                 </div>
             </div>
 
+            <div class="contact-search">
+                <i class="fas fa-search" style="color:var(--primary-cyan)"></i>
+                <input id="contact-search-input" type="search" placeholder="Search name / phone / JID…" autocomplete="off" />
+            </div>
+
             <div id="contacts-container" class="contacts-scroll">
                 <div style="text-align:center; padding:100px 30px; color:var(--text-muted); font-size:0.85rem; font-weight:600"><i class="fas fa-sync-alt fa-spin"></i> Syncing Contacts...</div>
             </div>
@@ -826,6 +857,7 @@
     const socket = io();
     const feed = document.getElementById('chat-feed');
     const contactList = document.getElementById('contacts-container');
+    const contactSearchInput = document.getElementById('contact-search-input');
     const mainInput = document.getElementById('chat-input');
     const sendBtn = document.getElementById('send-trigger');
     const adminImageInput = document.getElementById('admin-image-input');
@@ -1044,11 +1076,21 @@
 
     function renderContacts() {
         contactList.innerHTML = '';
-        if(knownContacts.length === 0) {
+        const q = (contactSearchInput?.value || '').trim().toLowerCase();
+        const rows = q
+            ? knownContacts.filter((c) => {
+                const name = String(c.name || '').toLowerCase();
+                const phone = String(c.phone || '').toLowerCase();
+                const jid = String(c.jid || '').toLowerCase();
+                return name.includes(q) || phone.includes(q) || jid.includes(q);
+              })
+            : knownContacts;
+
+        if(rows.length === 0) {
             contactList.innerHTML = '<div style="text-align:center; padding:100px 30px; color:var(--text-muted); font-size:0.8rem"><i class="fas fa-user-friends"></i><br>No contacts yet</div>';
             return;
         }
-        knownContacts.forEach(c => {
+        rows.forEach(c => {
             const card = document.createElement('div');
             card.className = `contact-card ${currentJid === c.jid ? 'active' : ''}`;
             card.onclick = () => selectThread(c.jid);
@@ -1088,6 +1130,10 @@
             `;
             contactList.appendChild(card);
         });
+    }
+
+    if (contactSearchInput) {
+        contactSearchInput.addEventListener('input', () => renderContacts());
     }
 
     function toggleOverridePanel() {

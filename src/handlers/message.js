@@ -150,6 +150,31 @@ function parseFeelingChoice(raw) {
     return null;
 }
 
+function hasEmoji(s) {
+    const t = String(s || "");
+    // basic emoji-ish ranges + common symbols
+    return /[\u{1F300}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(t);
+}
+
+function maybeAddOneEmoji(replyText, userText, langHint) {
+    const r = String(replyText || "").trim();
+    if (!r) return r;
+    if (hasEmoji(r)) return r;
+    // don't add emoji to long/formal messages
+    if (r.length > 220) return r;
+    if (/\b(dear|regards|sincerely|invoice|proposal|meeting|attached|asap|fyi)\b/i.test(r)) return r;
+
+    const u = String(userText || "").toLowerCase();
+    // very light, 0–1 emoji max
+    if (/\b(hi|hey|hello|yo|sup|salam|assalam|aoa)\b/i.test(u)) return r + " 👋";
+    if (/\b(thanks|thank you|thx|shukriya|jazak|jzk)\b/i.test(u)) return r + " 🙏";
+    if (/\b(lol|lmao|haha|hehe)\b/i.test(u)) return r + " 😂";
+    if (/\b(congrats|congratulations|mubarak)\b/i.test(u)) return r + " 🎉";
+    if (/\b(sad|upset|depress|stress|tension|udaas|pareshan)\b/i.test(u)) return r + " 🫂";
+    if (/high-level native English/i.test(String(langHint || "")) && /\b(great|nice|cool|awesome|amazing)\b/i.test(r.toLowerCase())) return r + " 🤝";
+    return r;
+}
+
 // Categories for proactive GIFs (mapped to waifu.pics)
 const GIF_CATEGORIES = ["smile", "wave", "happy", "dance", "laugh", "hug", "wink", "pat", "bonk", "yeet", "bully", "slap", "kill", "cringe", "cuddle", "cry"];
 const profilePicCache = new Map(); // Simple cache for avatars
@@ -733,7 +758,11 @@ async function handleMessage(sock, msg) {
         let assistantTextSent = false;
 
         if (wantsTextBeforeMedia) {
-            const outEarly = attachFeelingSuffix(finalCleanReply, feelingMenuSuffix, feelingLangForSend);
+            const outEarly = maybeAddOneEmoji(
+                attachFeelingSuffix(finalCleanReply, feelingMenuSuffix, feelingLangForSend),
+                text || prompt,
+                langHint
+            );
             console.log(`✅ [SYSTEM] Text-first (before GIF/image): ${outEarly.substring(0, 40)}...`);
             await safeSendMessage(sock, jid, { text: outEarly }, { quoted: msg });
             events.emit("ai_reply", { text: outEarly, jid: jid });
@@ -878,7 +907,11 @@ async function handleMessage(sock, msg) {
         finalCleanReply = aiReply.replace(/\[[\s\S]*?\]/g, "").replace(/\n{2,}/g, "\n").trim();
 
         if ((finalCleanReply || feelingMenuSuffix) && !assistantTextSent) {
-            const outFinal = attachFeelingSuffix(finalCleanReply, feelingMenuSuffix, feelingLangForSend);
+            const outFinal = maybeAddOneEmoji(
+                attachFeelingSuffix(finalCleanReply, feelingMenuSuffix, feelingLangForSend),
+                text || prompt,
+                langHint
+            );
             console.log(`✅ [SYSTEM] Sending final clean reply: ${outFinal.substring(0, 30)}...`);
             await safeSendMessage(sock, jid, { text: outFinal }, { quoted: msg });
             events.emit("ai_reply", { text: outFinal, jid: jid });
