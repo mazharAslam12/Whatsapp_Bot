@@ -13,6 +13,23 @@ let conflictCounter = 0;
 let sock = null; // Global sock reference to manage state
 let currentStatus = "disconnected";
 
+// Graceful shutdown (Railway/Docker sends SIGTERM).
+async function shutdown(signal) {
+    try {
+        console.log(`🧯 [SYSTEM] Shutdown requested (${signal}). Closing socket...`);
+        currentStatus = "disconnected";
+        events.emit("wa_status", "disconnected");
+        if (sock?.ev) sock.ev.removeAllListeners();
+        if (sock?.ws) {
+            try { sock.ws.close(); } catch (e) {}
+        }
+    } finally {
+        process.exit(0);
+    }
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
 // Sync Status with Dashboard
 events.on("request_status", () => {
     events.emit("wa_status", currentStatus);

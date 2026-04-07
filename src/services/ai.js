@@ -808,8 +808,10 @@ async function mazharAiReply(userMessage, senderJid, userName = "User", mediaBuf
                 }
             }
 
+            // Keep this list aligned with `models.json` (generated via Groq /v1/models).
+            // Old id "llama3-8b-8192" now returns HTTP 400 on many accounts.
             const textModels = [
-                "llama3-8b-8192", // Quick, reliable Llama3
+                "llama-3.1-8b-instant",
                 "llama-3.3-70b-versatile"
             ];
 
