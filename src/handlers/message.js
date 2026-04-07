@@ -177,6 +177,13 @@ function maybeAddOneEmoji(replyText, userText, langHint) {
     return r + " 🙂";
 }
 
+function renderProgressBar(pct, width = 10) {
+    const p = Math.min(100, Math.max(0, Number(pct) || 0));
+    const filled = Math.round((p / 100) * width);
+    const empty = Math.max(0, width - filled);
+    return `[${"█".repeat(filled)}${"░".repeat(empty)}] ${p}%`;
+}
+
 // Categories for proactive GIFs (mapped to waifu.pics)
 const GIF_CATEGORIES = ["smile", "wave", "happy", "dance", "laugh", "hug", "wink", "pat", "bonk", "yeet", "bully", "slap", "kill", "cringe", "cuddle", "cry"];
 const profilePicCache = new Map(); // Simple cache for avatars
@@ -475,6 +482,13 @@ async function handleMessage(sock, msg) {
                 const ack = maybeAddOneEmoji("Theek hai — bana raha hoon.", text, buildLanguageHint(text));
                 await safeSendMessage(sock, jid, { text: ack }, { quoted: msg });
 
+                await safeSendMessage(
+                    sock,
+                    jid,
+                    { text: maybeAddOneEmoji(`Image pipeline start\n${renderProgressBar(10)}`, text, buildLanguageHint(text)) },
+                    { quoted: msg }
+                );
+
                 const variants = await generatePollinationsImageVariants(finalPrompt, { count: 2 });
                 if (!variants.length) {
                     await safeSendMessage(
@@ -485,9 +499,23 @@ async function handleMessage(sock, msg) {
                     );
                     return;
                 }
-                for (const v of variants) {
+                for (let i = 0; i < variants.length; i++) {
+                    const v = variants[i];
+                    const pct = Math.min(95, 25 + Math.round(((i + 1) / variants.length) * 60));
+                    await safeSendMessage(
+                        sock,
+                        jid,
+                        { text: maybeAddOneEmoji(`Generating ${i + 1}/${variants.length}: ${v.label}\n${renderProgressBar(pct)}`, text, buildLanguageHint(text)) },
+                        { quoted: msg }
+                    );
                     await safeSendMessage(sock, jid, { image: v.buffer, caption: `🖼️ ${v.label}\n${finalPrompt}` }, { quoted: msg });
                 }
+                await safeSendMessage(
+                    sock,
+                    jid,
+                    { text: maybeAddOneEmoji(`Done ✅\n${renderProgressBar(100)}`, text, buildLanguageHint(text)) },
+                    { quoted: msg }
+                );
                 return;
             }
         }
@@ -615,12 +643,39 @@ async function handleMessage(sock, msg) {
                 await safeSendMessage(sock, jid, { text: "Likho: make image <prompt>" }, { quoted: msg });
                 return;
             }
-            const buf = await generatePollinationsImage(promptText);
-            if (!buf) {
-                await safeSendMessage(sock, jid, { text: "Abhi image generate nahi ho saki — 10 sec baad try." }, { quoted: msg });
+            await safeSendMessage(
+                sock,
+                jid,
+                { text: maybeAddOneEmoji(`Generating image…\n${renderProgressBar(15)}`, text, buildLanguageHint(text)) },
+                { quoted: msg }
+            );
+            const variants = await generatePollinationsImageVariants(promptText, { count: 2 });
+            if (!variants.length) {
+                await safeSendMessage(
+                    sock,
+                    jid,
+                    { text: maybeAddOneEmoji("Abhi image generate nahi ho saki — 10 sec baad try.", text, buildLanguageHint(text)) },
+                    { quoted: msg }
+                );
                 return;
             }
-            await safeSendMessage(sock, jid, { image: buf, caption: `🎨 ${promptText}` }, { quoted: msg });
+            for (let i = 0; i < variants.length; i++) {
+                const v = variants[i];
+                const pct = Math.min(95, 30 + Math.round(((i + 1) / variants.length) * 60));
+                await safeSendMessage(
+                    sock,
+                    jid,
+                    { text: maybeAddOneEmoji(`Generating ${i + 1}/${variants.length}: ${v.label}\n${renderProgressBar(pct)}`, text, buildLanguageHint(text)) },
+                    { quoted: msg }
+                );
+                await safeSendMessage(sock, jid, { image: v.buffer, caption: `🎨 ${v.label}\n${promptText}` }, { quoted: msg });
+            }
+            await safeSendMessage(
+                sock,
+                jid,
+                { text: maybeAddOneEmoji(`Done ✅\n${renderProgressBar(100)}`, text, buildLanguageHint(text)) },
+                { quoted: msg }
+            );
             return;
         }
 
@@ -1057,11 +1112,31 @@ async function handleMessage(sock, msg) {
             // If the USER's original message was asking to "send/sand images", generate AI images instead of web-search.
             if (!jid.endsWith("@g.us") && /\b(sand|send|bhej)\b/i.test(lower) && /\b(image|images|pic|pics|photo|photos)\b/i.test(lower)) {
                 const promptText = (imgMatch[1] || "").trim() || text.trim();
+                await safeSendMessage(
+                    sock,
+                    jid,
+                    { text: maybeAddOneEmoji(`Generating images…\n${renderProgressBar(15)}`, text, langHint) },
+                    { quoted: msg }
+                );
                 const variants = await generatePollinationsImageVariants(promptText, { count: 2 });
                 if (variants.length) {
-                    for (const v of variants) {
+                    for (let i = 0; i < variants.length; i++) {
+                        const v = variants[i];
+                        const pct = Math.min(95, 30 + Math.round(((i + 1) / variants.length) * 60));
+                        await safeSendMessage(
+                            sock,
+                            jid,
+                            { text: maybeAddOneEmoji(`Generating ${i + 1}/${variants.length}: ${v.label}\n${renderProgressBar(pct)}`, text, langHint) },
+                            { quoted: msg }
+                        );
                         await safeSendMessage(sock, jid, { image: v.buffer, caption: `🖼️ ${v.label}\n${promptText}` }, { quoted: msg });
                     }
+                    await safeSendMessage(
+                        sock,
+                        jid,
+                        { text: maybeAddOneEmoji(`Done ✅\n${renderProgressBar(100)}`, text, langHint) },
+                        { quoted: msg }
+                    );
                 }
                 return;
             }
