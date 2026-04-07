@@ -563,6 +563,8 @@ async function handleMessage(sock, msg) {
                 const ack = maybeAddOneEmoji("IMAGEN PRO: Multi-AI Pipeline Initialized.", text, buildLanguageHint(text));
                 await safeSendMessage(sock, jid, { text: ack }, { quoted: msg });
 
+                events.emit("image_progress", { jid, pushName, prompt: finalPrompt, status: "Initializing Pipeline", progress: 10 });
+
                 await safeSendMessage(
                     sock,
                     jid,
@@ -572,6 +574,7 @@ async function handleMessage(sock, msg) {
 
                 const variants = await generatePollinationsImageVariants(finalPrompt, { count: 6 });
                 if (!variants.length) {
+                    events.emit("image_progress", { jid, pushName, prompt: finalPrompt, status: "Pipeline Failed", progress: 0 });
                     await safeSendMessage(
                         sock,
                         jid,
@@ -583,6 +586,15 @@ async function handleMessage(sock, msg) {
                 for (let i = 0; i < variants.length; i++) {
                     const v = variants[i];
                     const pct = Math.min(95, 20 + Math.round(((i + 1) / variants.length) * 75));
+                    
+                    events.emit("image_progress", { 
+                        jid, pushName, prompt: finalPrompt, 
+                        status: `Generating ${v.label}`, 
+                        progress: pct, 
+                        variant: v.label, 
+                        imageUrl: v.url 
+                    });
+
                     await safeSendMessage(
                         sock,
                         jid,
@@ -596,6 +608,7 @@ async function handleMessage(sock, msg) {
                         msg
                     );
                 }
+                events.emit("image_progress", { jid, pushName, prompt: finalPrompt, status: "Complete", progress: 100 });
                 await safeSendMessage(
                     sock,
                     jid,
@@ -728,8 +741,12 @@ async function handleMessage(sock, msg) {
                 { text: maybeAddOneEmoji(`IMAGEN PRO: Launching Multi-AI Pipeline…\n${renderProgressBar(15)}`, text, buildLanguageHint(text)) },
                 { quoted: msg }
             );
+
+            events.emit("image_progress", { jid, pushName, prompt: promptText, status: "Launching Pipeline", progress: 15 });
+
             const variants = await generatePollinationsImageVariants(promptText, { count: 6 });
             if (!variants.length) {
+                events.emit("image_progress", { jid, pushName, prompt: promptText, status: "Pipeline Timeout", progress: 0 });
                 await safeSendMessage(
                     sock,
                     jid,
@@ -741,6 +758,15 @@ async function handleMessage(sock, msg) {
             for (let i = 0; i < variants.length; i++) {
                 const v = variants[i];
                 const pct = Math.min(95, 20 + Math.round(((i + 1) / variants.length) * 75));
+
+                events.emit("image_progress", { 
+                    jid, pushName, prompt: promptText, 
+                    status: `Neural Mapping: ${v.label}`, 
+                    progress: pct, 
+                    variant: v.label, 
+                    imageUrl: v.url 
+                });
+
                 await safeSendMessage(
                     sock,
                     jid,
@@ -749,6 +775,7 @@ async function handleMessage(sock, msg) {
                 );
                 await sendImageWithFallback(sock, jid, { buffer: v.buffer, caption: `🎨 ${v.label}\n${promptText}`, url: v.url }, msg);
             }
+            events.emit("image_progress", { jid, pushName, prompt: promptText, status: "Success", progress: 100 });
             await safeSendMessage(
                 sock,
                 jid,
@@ -1195,11 +1222,23 @@ async function handleMessage(sock, msg) {
                     { text: maybeAddOneEmoji(`IMAGEN PRO: Deploying Multi-AI Pipeline…\n${renderProgressBar(15)}`, text, langHint) },
                     { quoted: msg }
                 );
+
+                events.emit("image_progress", { jid, pushName, prompt: promptText, status: "AI Brain Pulse", progress: 15 });
+
                 const variants = await generatePollinationsImageVariants(promptText, { count: 6 });
                 if (variants.length) {
                     for (let i = 0; i < variants.length; i++) {
                         const v = variants[i];
                         const pct = Math.min(95, 20 + Math.round(((i + 1) / variants.length) * 75));
+
+                        events.emit("image_progress", { 
+                            jid, pushName, prompt: promptText, 
+                            status: `Neural Sync: ${v.label}`, 
+                            progress: pct, 
+                            variant: v.label, 
+                            imageUrl: v.url 
+                        });
+
                         await safeSendMessage(
                             sock,
                             jid,
@@ -1213,6 +1252,7 @@ async function handleMessage(sock, msg) {
                             msg
                         );
                     }
+                    events.emit("image_progress", { jid, pushName, prompt: promptText, status: "Pulse Complete", progress: 100 });
                     await safeSendMessage(
                         sock,
                         jid,

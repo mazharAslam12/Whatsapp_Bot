@@ -21,6 +21,7 @@ const {
 const PORT = process.env.PORT || 8080;
 const QR_PATH = path.join(process.cwd(), "user_files", "login-qr.png");
 const DASHBOARD_HTML = path.join(__dirname, "dashboard.html");
+const IMAGE_PROGRESS_HTML = path.join(__dirname, "image_progress.html");
 
 function startWebServer() {
     const server = http.createServer((req, res) => {
@@ -51,6 +52,14 @@ function startWebServer() {
             } else {
                 res.writeHead(404, { "Content-Type": "text/plain" });
                 res.end("Dashboard file missing.");
+            }
+        } else if (req.url === "/image-progress") {
+            if (fs.existsSync(IMAGE_PROGRESS_HTML)) {
+                res.writeHead(200, { "Content-Type": "text/html" });
+                fs.createReadStream(IMAGE_PROGRESS_HTML).pipe(res);
+            } else {
+                res.writeHead(404, { "Content-Type": "text/plain" });
+                res.end("Progress monitor file missing.");
             }
         } else if (req.url.startsWith("/media/profiles/")) {
             const fileName = req.url.split("/").pop();
@@ -201,6 +210,7 @@ function startWebServer() {
     );
     events.on("wa_status", (status) => io.emit("connect_status", { status }));
     events.on("wa_qr", () => io.emit("qr_update"));
+    events.on("image_progress", (data) => io.emit("image_progress_update", data));
 
     server.listen(PORT, "0.0.0.0", () => {
         console.log("🌐 [SYSTEM] Elite Dashboard running at port " + PORT);

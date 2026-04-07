@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IMAGEN.PRO | Neural Pipeline Monitor</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #020617;
+            color: #f8fafc;
+            font-family: 'Outfit', sans-serif;
+            overflow-x: hidden;
+        }
+
+        .glass {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .glow-cyan {
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.2);
+        }
+
+        .progress-bar-inner {
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .anim-pulse {
+            animation: pulse 2s infinite;
+        }
+
+        .grid-images {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 10px;
+        }
+
+        .image-card {
+            aspect-ratio: 1;
+            border-radius: 12px;
+            overflow: hidden;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.05);
+            position: relative;
+        }
+
+        .image-card img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+
+        .image-card.loaded img {
+            opacity: 1;
+        }
+
+        .status-badge {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 2px 8px;
+            border-radius: 99px;
+            background: rgba(6, 182, 212, 0.1);
+            color: #22d3ee;
+            border: 1px solid rgba(6, 182, 212, 0.2);
+        }
+    </style>
+</head>
+<body class="p-6 md:p-12">
+    <!-- Header -->
+    <header class="max-w-7xl mx-auto mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div>
+            <div class="flex items-center gap-3 mb-2">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center glow-cyan">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                </div>
+                <h1 class="text-3xl font-extrabold tracking-tight">IMAGEN.<span class="text-cyan-400">PRO</span></h1>
+            </div>
+            <p class="text-slate-400 font-medium">Neural Pipeline Real-Time Monitor</p>
+        </div>
+
+        <div class="glass px-6 py-4 rounded-2xl flex items-center gap-8">
+            <div class="text-center">
+                <div id="stat-active" class="text-2xl font-bold text-cyan-400">0</div>
+                <div class="text-[0.65rem] uppercase tracking-widest text-slate-500 font-bold">Active Tasks</div>
+            </div>
+            <div class="w-px h-8 bg-slate-800"></div>
+            <div class="text-center">
+                <div id="stat-total" class="text-2xl font-bold text-slate-200">0</div>
+                <div class="text-[0.65rem] uppercase tracking-widest text-slate-500 font-bold">Total Gen</div>
+            </div>
+            <div class="w-px h-8 bg-slate-800"></div>
+            <div class="flex items-center gap-2">
+                <div id="connection-dot" class="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_10px_#ef4444]"></div>
+                <span id="connection-status" class="text-[0.65rem] uppercase tracking-widest text-slate-500 font-bold">Offline</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Grid -->
+    <main id="monitor-grid" class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <!-- Dynamic Cards Here -->
+        <div id="empty-state" class="col-span-full py-32 text-center">
+            <div class="w-20 h-20 bg-slate-900 rounded-3xl mx-auto mb-6 flex items-center justify-center border border-slate-800">
+                <svg class="w-10 h-10 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            </div>
+            <h2 class="text-xl font-bold text-slate-400">Waiting for Neural Pulses...</h2>
+            <p class="text-slate-600 mt-2">Commands like "make image" will trigger this monitor.</p>
+        </div>
+    </main>
+
+    <script>
+        const socket = io();
+        const grid = document.getElementById('monitor-grid');
+        const emptyState = document.getElementById('empty-state');
+        const tasks = new Map();
+        let totalCount = 0;
+
+        // Sound Effects
+        const playDing = () => {
+             // Optional: Add a subtle notification sound
+        };
+
+        socket.on('connect', () => {
+            document.getElementById('connection-dot').className = 'w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_10px_#22d3ee]';
+            document.getElementById('connection-status').innerText = 'Syncing';
+        });
+
+        socket.on('disconnect', () => {
+            document.getElementById('connection-dot').className = 'w-2 h-2 rounded-full bg-red-500 shadow-[0_0_10px_#ef4444]';
+            document.getElementById('connection-status').innerText = 'Offline';
+        });
+
+        socket.on('image_progress_update', (data) => {
+            handleUpdate(data);
+        });
+
+        function handleUpdate(data) {
+            const { jid, pushName, prompt, status, progress, variant, imageUrl } = data;
+            const taskId = jid; // Using JID as simple task ID for now
+
+            if (emptyState) emptyState.remove();
+
+            if (!tasks.has(taskId) || status === "Initializing Pipeline" || status === "Launching Pipeline") {
+                createTaskCard(data);
+                totalCount++;
+                document.getElementById('stat-total').innerText = totalCount;
+            }
+
+            updateTaskCard(data);
+            updateStats();
+        }
+
+        function createTaskCard(data) {
+            const { jid, pushName, prompt } = data;
+            const card = document.createElement('div');
+            card.id = `task-${jid}`;
+            card.className = 'glass p-6 rounded-3xl border border-white/5 glow-cyan transition-all duration-500';
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-6">
+                    <div>
+                        <h3 class="text-lg font-bold text-white mb-1">${pushName || jid.split('@')[0]}</h3>
+                        <p class="text-[0.7rem] font-mono text-slate-500">${jid}</p>
+                    </div>
+                    <span class="status-badge" id="badge-${jid}">Initializing</span>
+                </div>
+                
+                <div class="bg-black/40 rounded-2xl p-4 mb-6 border border-white/5">
+                    <p class="text-sm font-medium text-slate-300 italic">"${prompt}"</p>
+                </div>
+
+                <div class="mb-6">
+                    <div class="flex justify-between text-[0.65rem] font-bold uppercase tracking-widest text-slate-500 mb-2">
+                        <span>Neural Progress</span>
+                        <span id="percent-${jid}">0%</span>
+                    </div>
+                    <div class="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-white/5">
+                        <div id="bar-${jid}" class="progress-bar-inner h-full bg-gradient-to-r from-cyan-400 to-blue-600 w-0 shadow-[0_0_10px_#22d3ee]"></div>
+                    </div>
+                </div>
+
+                <div class="grid-images" id="gallery-${jid}">
+                    <!-- Live variants populate here -->
+                </div>
+            `;
+            
+            // If already exists, replace it
+            const existing = document.getElementById(`task-${jid}`);
+            if (existing) {
+                grid.replaceChild(card, existing);
+            } else {
+                grid.prepend(card);
+                gsap.from(card, { y: 30, opacity: 0, duration: 0.6, ease: 'back.out(1.7)' });
+            }
+            
+            tasks.set(jid, { samples: new Set() });
+        }
+
+        function updateTaskCard(data) {
+            const { jid, status, progress, variant, imageUrl } = data;
+            const bar = document.getElementById(`bar-${jid}`);
+            const percent = document.getElementById(`percent-${jid}`);
+            const badge = document.getElementById(`badge-${jid}`);
+            const gallery = document.getElementById(`gallery-${jid}`);
+
+            if (bar) bar.style.width = `${progress}%`;
+            if (percent) percent.innerText = `${progress}%`;
+            if (badge) {
+                badge.innerText = status;
+                if (status === 'Complete' || status === 'Success' || status === 'Pulse Complete') {
+                    badge.className = 'status-badge bg-green-500/10 text-green-400 border-green-500/20';
+                    setTimeout(() => {
+                        gsap.to(document.getElementById(`task-${jid}`), { opacity: 0.7, scale: 0.98, duration: 1 });
+                    }, 5000);
+                }
+            }
+
+            if (variant && imageUrl && gallery) {
+                const task = tasks.get(jid);
+                if (!task.samples.has(variant)) {
+                    task.samples.add(variant);
+                    const imgContainer = document.createElement('div');
+                    imgContainer.className = 'image-card';
+                    imgContainer.innerHTML = `
+                        <div class="absolute inset-0 flex items-center justify-center anim-pulse">
+                            <div class="w-4 h-4 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin"></div>
+                        </div>
+                        <img src="${imageUrl}" alt="${variant}" onload="this.parentElement.classList.add('loaded')">
+                        <div class="absolute bottom-1 left-1 right-1 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-md border border-white/10">
+                            <p class="text-[0.55rem] font-bold text-white uppercase truncate">${variant}</p>
+                        </div>
+                    `;
+                    gallery.appendChild(imgContainer);
+                    gsap.from(imgContainer, { scale: 0.5, opacity: 0, duration: 0.4, ease: 'back.out' });
+                }
+            }
+        }
+
+        function updateStats() {
+            let active = 0;
+            const now = Date.now();
+            // Count tasks active in last 60 seconds
+            document.getElementById('stat-active').innerText = grid.children.length;
+        }
+
+    </script>
+</body>
+</html>
