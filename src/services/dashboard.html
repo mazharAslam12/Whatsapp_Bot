@@ -812,6 +812,7 @@
                     <button type="button" onclick="refreshContacts()" class="btn btn-ghost" style="padding:10px 18px; font-size:0.65rem"><i class="fas fa-sync-alt"></i> Refresh</button>
                     <button type="button" id="ai-toggle-btn" class="btn btn-ghost" style="padding:10px 18px; font-size:0.65rem" onclick="toggleAiForCurrentChat()" title="Mute/unmute AI for this chat"><i class="fas fa-robot"></i> AI: ACTIVE</button>
                     <button type="button" onclick="openMindConfig()" class="btn btn-ghost" style="padding:10px 18px; font-size:0.65rem" title="Global instructions for every chat"><i class="fas fa-brain"></i> Global AI</button>
+                    <button type="button" onclick="openImageMaker()" class="btn btn-ghost" style="padding:10px 18px; font-size:0.65rem" title="Open Image Maker panel"><i class="fas fa-image"></i> Image Maker</button>
                 </div>
             </header>
 
@@ -1277,6 +1278,35 @@
             feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' });
         }
     });
+
+    // Receive generated-image send requests from Image Maker page (iframe/tab).
+    window.addEventListener('message', async (event) => {
+        const data = event && event.data;
+        if (!data || data.type !== 'imagen_send') return;
+        const jid = data.jid || currentJid;
+        const url = data.url;
+        const caption = data.caption || '';
+        if (!jid || !url) return;
+        try {
+            const res = await fetch(url);
+            const blob = await res.blob();
+            const reader = new FileReader();
+            reader.onload = () => {
+                socket.emit('admin_reply', { jid, text: caption, imageBase64: reader.result });
+            };
+            reader.readAsDataURL(blob);
+        } catch (e) {
+            alert('Could not fetch generated image to send.');
+        }
+    });
+
+    function openImageMaker() {
+        if (!currentJid) {
+            alert('Select a chat first.');
+            return;
+        }
+        window.open('/image-maker?jid=' + encodeURIComponent(currentJid), '_blank');
+    }
 
     function appendBubble(role, text, time, media, opts) {
         const container = document.createElement('div');

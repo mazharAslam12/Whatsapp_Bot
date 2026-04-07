@@ -22,6 +22,9 @@ const PORT = process.env.PORT || 8080;
 const QR_PATH = path.join(process.cwd(), "user_files", "login-qr.png");
 const DASHBOARD_HTML = path.join(__dirname, "dashboard.html");
 const IMAGE_PROGRESS_HTML = path.join(__dirname, "image_progress.html");
+const IMAGE_MAKER_DIR = path.join(process.cwd(), "image maker");
+const IMAGE_MAKER_INDEX = path.join(IMAGE_MAKER_DIR, "index.html");
+const IMAGE_MAKER_STYLE = path.join(IMAGE_MAKER_DIR, "style.css");
 
 function startWebServer() {
     const server = http.createServer((req, res) => {
@@ -60,6 +63,22 @@ function startWebServer() {
             } else {
                 res.writeHead(404, { "Content-Type": "text/plain" });
                 res.end("Progress monitor file missing.");
+            }
+        } else if (req.url === "/image-maker" || req.url.startsWith("/image-maker?")) {
+            if (fs.existsSync(IMAGE_MAKER_INDEX)) {
+                res.writeHead(200, { "Content-Type": "text/html" });
+                fs.createReadStream(IMAGE_MAKER_INDEX).pipe(res);
+            } else {
+                res.writeHead(404, { "Content-Type": "text/plain" });
+                res.end("Image maker missing.");
+            }
+        } else if (req.url === "/image-maker/style.css") {
+            if (fs.existsSync(IMAGE_MAKER_STYLE)) {
+                res.writeHead(200, { "Content-Type": "text/css" });
+                fs.createReadStream(IMAGE_MAKER_STYLE).pipe(res);
+            } else {
+                res.writeHead(404, { "Content-Type": "text/plain" });
+                res.end("style.css missing.");
             }
         } else if (req.url.startsWith("/media/profiles/")) {
             const fileName = req.url.split("/").pop();

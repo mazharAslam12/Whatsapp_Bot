@@ -550,20 +550,24 @@ async function handleMessage(sock, msg) {
         // These are the commands shown in `menu`. Handle them directly so they always work.
         // If user says "send/sand image(s)" in natural language, generate AI images (Pollinations) – NOT web search.
         if (!jid.endsWith("@g.us")) {
-            const sendImageMatch = lower.match(
-                /\b(sand|send|bhej|bana|banaoo?|banyee?|create|make|generate)\s+(me\s+)?(some\s+)?(an?\s+)?(image|images|pic|pics|picture|pictures|photo|photos)\b([\s\S]*)/i
-            ) || lower.match(
-                /\b(image|images|pic|pics|picture|pictures|photo|photos)\b\s+(bana|banaoo?|banyee?|create|make|generate)([\s\S]*)/i
-            );
-            if (sendImageMatch) {
-                const tail = (sendImageMatch[6] || sendImageMatch[3] || "").trim();
-                const promptText = tail ? tail.replace(/^[:\-–—]\s*/, "").trim() : "";
-                const finalPrompt = promptText || text.trim() || "ultra professional aesthetic wallpaper, cinematic lighting, high detail";
+            // RELAXED INTENT: Catch "sand/send/make/create/bnao" + "image/pic/photo" anywhere in the message.
+            const hasVerb = /\b(sand|send|bhej|bana|banaoo?|banyee?|create|make|generate|imagine|show|give)\b/i.test(lower);
+            const hasNoun = /\b(image|images|pic|pics|picture|pictures|photo|photos|wallpaper|dp)\b/i.test(lower);
+            
+            if (hasVerb && hasNoun) {
+                const promptText = text
+                    .replace(/\b(sand|send|me|some|an?|bhej|bana|banaoo?|banyee?|create|make|generate|imagine|show|give|please|plz)\b/gi, "")
+                    .replace(/\b(image|images|pic|pics|picture|pictures|photo|photos|wallpaper|dp)\b/gi, "")
+                    .replace(/[?؟!:]/g, "")
+                    .replace(/\s+/g, " ")
+                    .trim();
+
+                const finalPrompt = promptText || "ultra professional aesthetic wallpaper, cinematic lighting, high detail";
 
                 const ack = maybeAddOneEmoji("IMAGEN PRO: Multi-AI Pipeline Initialized.", text, buildLanguageHint(text));
                 await safeSendMessage(sock, jid, { text: ack }, { quoted: msg });
 
-                events.emit("image_progress", { jid, pushName, prompt: finalPrompt, status: "Initializing Pipeline", progress: 10 });
+                events.emit("image_progress", { jid, pushName, prompt: finalPrompt, status: "Neural Mapping Initialized", progress: 10 });
 
                 await safeSendMessage(
                     sock,
@@ -574,7 +578,7 @@ async function handleMessage(sock, msg) {
 
                 const variants = await generatePollinationsImageVariants(finalPrompt, { count: 6 });
                 if (!variants.length) {
-                    events.emit("image_progress", { jid, pushName, prompt: finalPrompt, status: "Pipeline Failed", progress: 0 });
+                    events.emit("image_progress", { jid, pushName, prompt: finalPrompt, status: "Pipeline Error", progress: 0 });
                     await safeSendMessage(
                         sock,
                         jid,
@@ -719,7 +723,7 @@ async function handleMessage(sock, msg) {
 
         // make image <prompt>  (AI generated image using your "image maker" engine)
         if (
-            lower.match(/\b(make|create|generate|sand|send|bhej|bana|banaoo?|banyee?)\s+(an?\s+)?(image|pic|photo|wallpaper)/i) ||
+            lower.match(/\b(make|create|generate|bana|banaoo?|banyee?)\s+(an?\s+)?(image|pic|photo|wallpaper)/i) ||
             lower.match(/\b(image|pic|photo|wallpaper)\s+(bana|banaoo?|banyee?|bana dein|bana do)/i)
         ) {
             const promptText = text
