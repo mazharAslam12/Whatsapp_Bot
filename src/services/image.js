@@ -59,4 +59,32 @@ async function generatePollinationsImage(prompt, opts = {}) {
     }
 }
 
-module.exports = { searchImages, buildPollinationsUrl, generatePollinationsImage };
+// Style variants copied from `image maker/script.js` so WhatsApp can generate multi-style images too.
+const STYLE_VARIANTS = [
+    { label: "Balanced", suffix: "" },
+    { label: "Photoreal", suffix: ", photorealistic, 8k uhd, detailed texture, natural lighting, shot on full frame" },
+    { label: "Anime", suffix: ", anime style, clean line art, vibrant colors, cel shading, high detail" },
+    { label: "3D render", suffix: ", 3d render, octane render, studio lighting, subsurface scattering, highly detailed" },
+    { label: "Cinematic", suffix: ", cinematic composition, dramatic lighting, film grain, wide angle, color graded" },
+    { label: "Oil paint", suffix: ", oil painting, visible brush strokes, rich impasto, museum quality" }
+];
+
+async function generatePollinationsImageVariants(prompt, { count = 2, width = 1024, height = 1024, model = "flux" } = {}) {
+    const base = (prompt || "").trim();
+    const safeCount = Math.min(Math.max(parseInt(count, 10) || 2, 1), 4);
+    const picks = STYLE_VARIANTS.slice(0, safeCount);
+    const results = [];
+    for (const v of picks) {
+        const buf = await generatePollinationsImage(`${base}${v.suffix}`, { width, height, model });
+        if (buf && buf.length) results.push({ label: v.label, buffer: buf });
+    }
+    return results;
+}
+
+module.exports = {
+    searchImages,
+    buildPollinationsUrl,
+    generatePollinationsImage,
+    generatePollinationsImageVariants,
+    STYLE_VARIANTS
+};

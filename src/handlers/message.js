@@ -2,7 +2,7 @@ const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 const fs = require("fs").promises;
 const path = require("path");
 const { mazharAiReply, isAiEnabled, transcribeVoice, buildLanguageHint, userPauseCommand, pauseAiTemporarily, toggleUserAi } = require("../services/ai");
-const { generatePollinationsImage } = require("../services/image");
+const { generatePollinationsImage, generatePollinationsImageVariants } = require("../services/image");
 const { getGif } = require("../services/gif");
 const events = require("../lib/events");
 
@@ -462,19 +462,32 @@ async function handleMessage(sock, msg) {
 
         // --- COMMAND ROUTER (works in private + group) ---
         // These are the commands shown in `menu`. Handle them directly so they always work.
-        // If user says "send/sand image" in natural language, generate an AI image (Pollinations).
+        // If user says "send/sand image(s)" in natural language, generate AI images (Pollinations) – NOT web search.
         if (!jid.endsWith("@g.us")) {
-            const sendImageMatch = lower.match(/\b(sand|send|bhej|bhej)\s+(me\s+)?(an?\s+)?(image|pic|picture|photo)\b([\s\S]*)/i);
+            const sendImageMatch = lower.match(
+                /\b(sand|send|bhej)\s+(me\s+)?(some\s+)?(an?\s+)?(image|images|pic|pics|picture|pictures|photo|photos)\b([\s\S]*)/i
+            );
             if (sendImageMatch) {
-                const tail = (sendImageMatch[5] || "").trim();
+                const tail = (sendImageMatch[6] || "").trim();
                 const promptText = tail ? tail.replace(/^[:\-–—]\s*/, "").trim() : "";
-                const finalPrompt = promptText || "ultra professional aesthetic wallpaper, high detail, cinematic lighting";
-                const buf = await generatePollinationsImage(finalPrompt);
-                if (!buf) {
-                    await safeSendMessage(sock, jid, { text: maybeAddOneEmoji("Abhi image generate nahi ho saki — 10 sec baad try.", text, buildLanguageHint(text)) }, { quoted: msg });
+                const finalPrompt = promptText || text.trim() || "ultra professional aesthetic wallpaper, cinematic lighting, high detail";
+
+                const ack = maybeAddOneEmoji("Theek hai — bana raha hoon.", text, buildLanguageHint(text));
+                await safeSendMessage(sock, jid, { text: ack }, { quoted: msg });
+
+                const variants = await generatePollinationsImageVariants(finalPrompt, { count: 2 });
+                if (!variants.length) {
+                    await safeSendMessage(
+                        sock,
+                        jid,
+                        { text: maybeAddOneEmoji("Abhi image generate nahi ho saki — 10 sec baad try.", text, buildLanguageHint(text)) },
+                        { quoted: msg }
+                    );
                     return;
                 }
-                await safeSendMessage(sock, jid, { image: buf, caption: `🖼️ ${finalPrompt}` }, { quoted: msg });
+                for (const v of variants) {
+                    await safeSendMessage(sock, jid, { image: v.buffer, caption: `🖼️ ${v.label}\n${finalPrompt}` }, { quoted: msg });
+                }
                 return;
             }
         }
@@ -1041,6 +1054,17 @@ async function handleMessage(sock, msg) {
         // 3. MEDIA TRIGGERS
         const imgMatch = aiReply.match(/\[IMG_SEARCH:\s*(.*?)\]/i);
         if (imgMatch) {
+            // If the USER's original message was asking to "send/sand images", generate AI images instead of web-search.
+            if (!jid.endsWith("@g.us") && /\b(sand|send|bhej)\b/i.test(lower) && /\b(image|images|pic|pics|photo|photos)\b/i.test(lower)) {
+                const promptText = (imgMatch[1] || "").trim() || text.trim();
+                const variants = await generatePollinationsImageVariants(promptText, { count: 2 });
+                if (variants.length) {
+                    for (const v of variants) {
+                        await safeSendMessage(sock, jid, { image: v.buffer, caption: `🖼️ ${v.label}\n${promptText}` }, { quoted: msg });
+                    }
+                }
+                return;
+            }
             const q = (imgMatch[1] || "").trim().toLowerCase();
             const last = lastMediaTagByJid.get(jid);
             if (last && last.key === `img:${q}` && Date.now() - last.at < MEDIA_TAG_COOLDOWN_MS) {
