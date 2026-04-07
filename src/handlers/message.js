@@ -730,7 +730,7 @@ async function handleMessage(sock, msg) {
                 await safeSendMessage(
                     sock,
                     jid,
-                    { text: maybeAddOneEmoji("Pipeline occupied. Retry momentarily.", text, buildLanguageHint(text)) },
+                    { text: "The image pipeline is momentarily occupied. Please attempt your request in 10 seconds." },
                     { quoted: msg }
                 );
                 return;
@@ -1147,12 +1147,15 @@ async function handleMessage(sock, msg) {
             feelingMenuLangKey || detectFeelingLangFromHint(buildLanguageHint(prompt + rawText));
 
         // 2. REACTION
+        // --- [ULTRA-AGGRESSIVE TAG STRIPPER] ---
+        // Ensures NO internal tags (REACTION, IMG_SEARCH, GIF, FEELING, etc.) ever leak to the user.
+        let finalCleanReply = aiReply.replace(/\[[\s\S]*?\]/g, "").replace(/\n{2,}/g, "\n").trim();
+        
         const reactionMatch = aiReply.match(/\[REACTION:\s*(.*?)\]/i);
         if (reactionMatch) {
-            await safeSendMessage(sock, jid, { react: { text: reactionMatch[1], key: msg.key } });
+            await sock.sendMessage(jid, { react: { text: reactionMatch[1], key: msg.key } });
         }
 
-        let finalCleanReply = aiReply.replace(/\[[\s\S]*?\]/g, "").replace(/\n{2,}/g, "\n").trim();
         const wantsTextBeforeMedia =
             Boolean(finalCleanReply) &&
             (/\[IMG_SEARCH:/i.test(aiReply) || /\[GIF:/i.test(aiReply) || /\[TRIGGER_SEND_REAL_OWNER_PHOTO\]/i.test(aiReply));
@@ -1214,7 +1217,7 @@ async function handleMessage(sock, msg) {
                         { quoted: msg }
                     );
                 } else {
-                    await safeSendMessage(sock, jid, { text: "Pipeline occupied. Retry momentarily." }, { quoted: msg });
+                    await safeSendMessage(sock, jid, { text: "The image pipeline is momentarily occupied. Please attempt your request in 10 seconds." }, { quoted: msg });
                 }
                 return;
             }
