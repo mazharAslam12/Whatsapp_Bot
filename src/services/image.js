@@ -72,6 +72,14 @@ const STYLE_VARIANTS = [
     { label: 'Oil paint', desc: 'Fine art', suffix: ', oil painting, visible brush strokes, rich impasto, museum quality' }
 ];
 
+const FALLBACK_PIPELINE = STYLE_VARIANTS.map((v, idx) => ({
+    id: 'flux',
+    name: v.label,
+    desc: v.desc,
+    promptSuffix: v.suffix,
+    variantKey: `fb-${idx}`
+}));
+
 /**
  * Describe the reference image so text-to-image can follow it (Pollinations vision API).
  * Ported from image maker/script.js for bot use.
@@ -107,18 +115,66 @@ async function analyzeReferenceImage(dataUrl) {
     }
 }
 
-async function generatePollinationsImageVariants(prompt, { count = 2, width = 1024, height = 1024, model = "flux" } = {}) {
-    const base = (prompt || "").trim();
-    const safeCount = Math.min(Math.max(parseInt(count, 10) || 2, 1), STYLE_VARIANTS.length);
-    const picks = STYLE_VARIANTS.slice(0, safeCount);
-    const results = [];
-    for (const v of picks) {
-        const fullPrompt = `${base}${v.suffix}`;
-        const url = buildPollinationsUrl(fullPrompt, { width, height, model });
-        const buf = await generatePollinationsImage(fullPrompt, { width, height, model });
-        if (buf && buf.length) results.push({ label: v.label, buffer: buf, url });
+async function resolvePipelineModels() {
+    try {
+        const res = await fetch('https://image.pollinations.ai/models', { cache: 'no-store' });
+        if (!res.ok) throw new Error('models');
+        const list = await res.json();
+        if (!Array.isArray(list) || list.length === 0) throw new Error('empty');
+
+        if (list.length === 1) {
+            const mid = list[0];
+            return STYLE_VARIANTS.map((v, idx) => ({
+                id: mid,
+                name: `${String(mid).toUpperCase()} · ${v.label}`,
+                desc: v.desc,
+                promptSuffix: v.suffix,
+                variantKey: `v-${idx}`
+            }));
+        }
+
+        const take = list.slice(0, 6);
+        return take.map((id, idx) => ({
+            id,
+            name: String(id).replace(/-/g, ' ').toUpperCase(),
+            desc: 'Active model',
+            promptSuffix: '',
+            variantKey: `m-${idx}`
+        }));
+    } catch {
+        return FALLBACK_PIPELINE;
     }
-    return results;
+}
+
+const delay = ms => new Promise(res => setTimeout(res, ms));
+
+async function generatePollinationsImageVariants(prompt, { count = 6, width = 1024, height = 1024 } = {}) {
+    const base = (prompt || "").trim();
+    const models = await resolvePipelineModels();
+    const safeCount = Math.min(Math.max(parseInt(count, 10) || 6, 1), models.length);
+    const picks = models.slice(0, safeCount);
+    const results = new Array(picks.length);
+
+    // Run generations concurrently with staggered start
+    const tasks = picks.map((modelConfig, index) => 
+        delay(index * 1000).then(async () => {
+            const fullPrompt = `${base}${modelConfig.promptSuffix}`;
+            const seed = Math.floor(Math.random() * 2147483647);
+            const url = buildPollinationsUrl(fullPrompt, { width, height, model: modelConfig.id, seed });
+            
+            try {
+                const buf = await generatePollinationsImage(fullPrompt, { width, height, model: modelConfig.id, seed });
+                if (buf && buf.length) {
+                    results[index] = { label: modelConfig.name, buffer: buf, url };
+                }
+            } catch (e) {
+                console.error(`❌ [IMAGE GEN] Failed for ${modelConfig.name}`, e);
+            }
+        })
+    );
+
+    await Promise.all(tasks);
+    return results.filter(Boolean); // Filter out any failed tasks
 }
 
 module.exports = {
@@ -127,5 +183,7 @@ module.exports = {
     generatePollinationsImage,
     generatePollinationsImageVariants,
     analyzeReferenceImage,
-    STYLE_VARIANTS
+    STYLE_VARIANTS,
+    resolvePipelineModels,
+    FALLBACK_PIPELINE
 };

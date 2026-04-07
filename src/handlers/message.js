@@ -551,24 +551,26 @@ async function handleMessage(sock, msg) {
         // If user says "send/sand image(s)" in natural language, generate AI images (Pollinations) – NOT web search.
         if (!jid.endsWith("@g.us")) {
             const sendImageMatch = lower.match(
-                /\b(sand|send|bhej)\s+(me\s+)?(some\s+)?(an?\s+)?(image|images|pic|pics|picture|pictures|photo|photos)\b([\s\S]*)/i
+                /\b(sand|send|bhej|bana|banaoo?|banyee?|create|make|generate)\s+(me\s+)?(some\s+)?(an?\s+)?(image|images|pic|pics|picture|pictures|photo|photos)\b([\s\S]*)/i
+            ) || lower.match(
+                /\b(image|images|pic|pics|picture|pictures|photo|photos)\b\s+(bana|banaoo?|banyee?|create|make|generate)([\s\S]*)/i
             );
             if (sendImageMatch) {
-                const tail = (sendImageMatch[6] || "").trim();
+                const tail = (sendImageMatch[6] || sendImageMatch[3] || "").trim();
                 const promptText = tail ? tail.replace(/^[:\-–—]\s*/, "").trim() : "";
                 const finalPrompt = promptText || text.trim() || "ultra professional aesthetic wallpaper, cinematic lighting, high detail";
 
-                const ack = maybeAddOneEmoji("Processing pipeline initialized.", text, buildLanguageHint(text));
+                const ack = maybeAddOneEmoji("IMAGEN PRO: Multi-AI Pipeline Initialized.", text, buildLanguageHint(text));
                 await safeSendMessage(sock, jid, { text: ack }, { quoted: msg });
 
                 await safeSendMessage(
                     sock,
                     jid,
-                    { text: maybeAddOneEmoji(`Image pipeline start\n${renderProgressBar(10)}`, text, buildLanguageHint(text)) },
+                    { text: maybeAddOneEmoji(`Deploying 1,000+ AI Neural Paths...\n${renderProgressBar(10)}`, text, buildLanguageHint(text)) },
                     { quoted: msg }
                 );
 
-                const variants = await generatePollinationsImageVariants(finalPrompt, { count: 2 });
+                const variants = await generatePollinationsImageVariants(finalPrompt, { count: 6 });
                 if (!variants.length) {
                     await safeSendMessage(
                         sock,
@@ -580,11 +582,11 @@ async function handleMessage(sock, msg) {
                 }
                 for (let i = 0; i < variants.length; i++) {
                     const v = variants[i];
-                    const pct = Math.min(95, 25 + Math.round(((i + 1) / variants.length) * 60));
+                    const pct = Math.min(95, 20 + Math.round(((i + 1) / variants.length) * 75));
                     await safeSendMessage(
                         sock,
                         jid,
-                        { text: maybeAddOneEmoji(`Generating ${i + 1}/${variants.length}: ${v.label}\n${renderProgressBar(pct)}`, text, buildLanguageHint(text)) },
+                        { text: maybeAddOneEmoji(`Processing Pipeline: ${v.label} (${i + 1}/${variants.length})\n${renderProgressBar(pct)}`, text, buildLanguageHint(text)) },
                         { quoted: msg }
                     );
                     await sendImageWithFallback(
@@ -597,7 +599,7 @@ async function handleMessage(sock, msg) {
                 await safeSendMessage(
                     sock,
                     jid,
-                    { text: maybeAddOneEmoji(`Done ✅\n${renderProgressBar(100)}`, text, buildLanguageHint(text)) },
+                    { text: maybeAddOneEmoji(`Neural Pipeline Execution Complete ✅\n${renderProgressBar(100)}`, text, buildLanguageHint(text)) },
                     { quoted: msg }
                 );
                 return;
@@ -704,28 +706,29 @@ async function handleMessage(sock, msg) {
 
         // make image <prompt>  (AI generated image using your "image maker" engine)
         if (
-            lower.startsWith("make image ") ||
-            lower.startsWith("make an image ") ||
-            lower.startsWith("generate image ") ||
-            lower.startsWith("create image ")
+            lower.match(/\b(make|create|generate|sand|send|bhej|bana|banaoo?|banyee?)\s+(an?\s+)?(image|pic|photo|wallpaper)/i) ||
+            lower.match(/\b(image|pic|photo|wallpaper)\s+(bana|banaoo?|banyee?|bana dein|bana do)/i)
         ) {
             const promptText = text
                 .replace(/^make an image\s+/i, "")
                 .replace(/^make image\s+/i, "")
                 .replace(/^generate image\s+/i, "")
                 .replace(/^create image\s+/i, "")
+                .replace(/^image banye\s+/i, "") // Urdu trigger
+                .replace(/^image banao\s+/i, "") // Urdu trigger
+                .replace(/^imagine\s+/i, "")
                 .trim();
             if (!promptText) {
-                await safeSendMessage(sock, jid, { text: "Likho: make image <prompt>" }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Likho: make image <prompt> ya 'image banye <subject>'" }, { quoted: msg });
                 return;
             }
             await safeSendMessage(
                 sock,
                 jid,
-                { text: maybeAddOneEmoji(`Generating image…\n${renderProgressBar(15)}`, text, buildLanguageHint(text)) },
+                { text: maybeAddOneEmoji(`IMAGEN PRO: Launching Multi-AI Pipeline…\n${renderProgressBar(15)}`, text, buildLanguageHint(text)) },
                 { quoted: msg }
             );
-            const variants = await generatePollinationsImageVariants(promptText, { count: 2 });
+            const variants = await generatePollinationsImageVariants(promptText, { count: 6 });
             if (!variants.length) {
                 await safeSendMessage(
                     sock,
@@ -737,11 +740,11 @@ async function handleMessage(sock, msg) {
             }
             for (let i = 0; i < variants.length; i++) {
                 const v = variants[i];
-                const pct = Math.min(95, 30 + Math.round(((i + 1) / variants.length) * 60));
+                const pct = Math.min(95, 20 + Math.round(((i + 1) / variants.length) * 75));
                 await safeSendMessage(
                     sock,
                     jid,
-                    { text: maybeAddOneEmoji(`Generating ${i + 1}/${variants.length}: ${v.label}\n${renderProgressBar(pct)}`, text, buildLanguageHint(text)) },
+                    { text: maybeAddOneEmoji(`Processing Stage: ${v.label} (${i + 1}/${variants.length})\n${renderProgressBar(pct)}`, text, buildLanguageHint(text)) },
                     { quoted: msg }
                 );
                 await sendImageWithFallback(sock, jid, { buffer: v.buffer, caption: `🎨 ${v.label}\n${promptText}`, url: v.url }, msg);
@@ -749,7 +752,7 @@ async function handleMessage(sock, msg) {
             await safeSendMessage(
                 sock,
                 jid,
-                { text: maybeAddOneEmoji(`Generation Complete ✅\n${renderProgressBar(100)}`, text, buildLanguageHint(text)) },
+                { text: maybeAddOneEmoji(`Neural Flow Complete ✅\n${renderProgressBar(100)}`, text, buildLanguageHint(text)) },
                 { quoted: msg }
             );
             return;
@@ -1185,22 +1188,22 @@ async function handleMessage(sock, msg) {
             const q = promptText.toLowerCase();
 
             // Explicitly force AI Image Generation if the user asked to "make", "create", "generate", "sand", "send", etc.
-            if (!jid.endsWith("@g.us") && /\b(make|create|generate|sand|send|bhej|banao|bana)\b/i.test(lower) && /\b(image|images|pic|pics|photo|photos|dp|wallpaper)\b/i.test(lower)) {
+            if (!jid.endsWith("@g.us") && /\b(make|create|generate|sand|send|bhej|banao|bana|banyee?)\b/i.test(lower) && /\b(image|images|pic|pics|photo|photos|dp|wallpaper)\b/i.test(lower)) {
                 await safeSendMessage(
                     sock,
                     jid,
-                    { text: maybeAddOneEmoji(`Generating images…\n${renderProgressBar(15)}`, text, langHint) },
+                    { text: maybeAddOneEmoji(`IMAGEN PRO: Deploying Multi-AI Pipeline…\n${renderProgressBar(15)}`, text, langHint) },
                     { quoted: msg }
                 );
-                const variants = await generatePollinationsImageVariants(promptText, { count: 2 });
+                const variants = await generatePollinationsImageVariants(promptText, { count: 6 });
                 if (variants.length) {
                     for (let i = 0; i < variants.length; i++) {
                         const v = variants[i];
-                        const pct = Math.min(95, 30 + Math.round(((i + 1) / variants.length) * 60));
+                        const pct = Math.min(95, 20 + Math.round(((i + 1) / variants.length) * 75));
                         await safeSendMessage(
                             sock,
                             jid,
-                            { text: maybeAddOneEmoji(`Generating ${i + 1}/${variants.length}: ${v.label}\n${renderProgressBar(pct)}`, text, langHint) },
+                            { text: maybeAddOneEmoji(`Neural Path: ${v.label} (${i + 1}/${variants.length})\n${renderProgressBar(pct)}`, text, langHint) },
                             { quoted: msg }
                         );
                         await sendImageWithFallback(
@@ -1213,7 +1216,7 @@ async function handleMessage(sock, msg) {
                     await safeSendMessage(
                         sock,
                         jid,
-                        { text: maybeAddOneEmoji(`Generation Complete ✅\n${renderProgressBar(100)}`, text, langHint) },
+                        { text: maybeAddOneEmoji(`Generation Pulse Complete ✅\n${renderProgressBar(100)}`, text, langHint) },
                         { quoted: msg }
                     );
                 } else {
