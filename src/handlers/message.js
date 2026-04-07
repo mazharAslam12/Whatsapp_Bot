@@ -2,7 +2,8 @@ const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 const fs = require("fs").promises;
 const path = require("path");
 const { mazharAiReply, isAiEnabled, transcribeVoice, buildLanguageHint, userPauseCommand, pauseAiTemporarily, toggleUserAi } = require("../services/ai");
-const { searchImages } = require("../services/image");
+const { generatePollinationsImage } = require("../services/image");
+const { getGif } = require("../services/gif");
 const events = require("../lib/events");
 
 const OWNER_JID = process.env.OWNER_JID;
@@ -160,19 +161,20 @@ function maybeAddOneEmoji(replyText, userText, langHint) {
     const r = String(replyText || "").trim();
     if (!r) return r;
     if (hasEmoji(r)) return r;
-    // don't add emoji to long/formal messages
-    if (r.length > 220) return r;
-    if (/\b(dear|regards|sincerely|invoice|proposal|meeting|attached|asap|fyi)\b/i.test(r)) return r;
-
     const u = String(userText || "").toLowerCase();
-    // very light, 0–1 emoji max
+    // Always add exactly 1 emoji (user requested). Keep it relevant to user's message.
     if (/\b(hi|hey|hello|yo|sup|salam|assalam|aoa)\b/i.test(u)) return r + " 👋";
     if (/\b(thanks|thank you|thx|shukriya|jazak|jzk)\b/i.test(u)) return r + " 🙏";
     if (/\b(lol|lmao|haha|hehe)\b/i.test(u)) return r + " 😂";
     if (/\b(congrats|congratulations|mubarak)\b/i.test(u)) return r + " 🎉";
     if (/\b(sad|upset|depress|stress|tension|udaas|pareshan)\b/i.test(u)) return r + " 🫂";
+    if (/\b(sorry|apolog|maaf)\b/i.test(u)) return r + " 🙇";
+    if (/\b(love|miss|crush|janu|baby)\b/i.test(u)) return r + " ❤️";
+    if (/\b(angry|mad|gussa|annoy|irritat)\b/i.test(u)) return r + " 😤";
+    if (/\b(ok|okay|theek|thik|fine)\b/i.test(u)) return r + " 👍";
+    if (/\b(help|support|issue|problem|error|bug|fix|nahi\s+chal)\b/i.test(u)) return r + " 🛠️";
     if (/high-level native English/i.test(String(langHint || "")) && /\b(great|nice|cool|awesome|amazing)\b/i.test(r.toLowerCase())) return r + " 🤝";
-    return r;
+    return r + " 🙂";
 }
 
 // Categories for proactive GIFs (mapped to waifu.pics)
@@ -287,6 +289,10 @@ async function handleMessage(sock, msg) {
             "";
         const text = rawText.trim();
 
+        // ✅ Do not process outbound/admin messages.
+        // Prevents the bot/AI from replying to dashboard sends or its own WhatsApp messages.
+        if (fromMe) return;
+
         // Extract Quoted Context
         let quotedContext = "";
         const contextInfo = content.extendedTextMessage?.contextInfo;
@@ -368,6 +374,16 @@ async function handleMessage(sock, msg) {
             }
         }
 
+        // Stats: count messages + media types (simple in-memory counters)
+        userStats[jid] = userStats[jid] || { messages: 0, lastSeen: 0 };
+        userStats[jid].messages += 1;
+        userStats[jid].lastSeen = Date.now();
+        if (mediaType) {
+            userMediaStats[jid] =
+                userMediaStats[jid] || { image: 0, video: 0, gif: 0, audio: 0, document: 0, sticker: 0 };
+            if (userMediaStats[jid][mediaType] != null) userMediaStats[jid][mediaType] += 1;
+        }
+
         let documentExtractedText = null;
         if (msgType === "documentMessage" && mediaBuffer && mediaBuffer.length) {
             const dm = content.documentMessage;
@@ -444,6 +460,205 @@ async function handleMessage(sock, msg) {
 
         const lower = text.toLowerCase();
 
+        // --- COMMAND ROUTER (works in private + group) ---
+        // These are the commands shown in `menu`. Handle them directly so they always work.
+        // Auto-GIF reply: if user sends a GIF with no caption (private chat), send a different GIF back.
+        if (mediaType === "gif" && !jid.endsWith("@g.us") && !text) {
+            try {
+                const hint = "happy";
+                const gifData = await getGif(hint);
+                if (gifData?.url) {
+                    const mediaRes = await fetch(gifData.url, { redirect: "follow" });
+                    if (mediaRes.ok) {
+                        const bodyBuf = Buffer.from(await mediaRes.arrayBuffer());
+                        if (bodyBuf.length > 14 * 1024 * 1024) {
+                            await safeSendMessage(sock, jid, { text: "GIF bari thi, yeh link le: " + gifData.url }, { quoted: msg });
+                            return;
+                        }
+                        const urlLower = gifData.url.toLowerCase();
+                        const ct = (mediaRes.headers.get("content-type") || "").toLowerCase();
+                        const looksMp4 = gifData.isMp4 || urlLower.includes(".mp4") || ct.includes("video/mp4");
+                        const looksWebm = urlLower.includes(".webm") || ct.includes("webm");
+                        if (looksMp4 || looksWebm) {
+                            await safeSendMessage(sock, jid, {
+                                video: bodyBuf,
+                                mimetype: looksWebm ? "video/webm" : "video/mp4",
+                                gifPlayback: true
+                            });
+                        } else {
+                            await safeSendMessage(sock, jid, { image: bodyBuf, mimetype: ct.includes("gif") ? "image/gif" : "image/jpeg" });
+                        }
+                        return;
+                    }
+                }
+            } catch (e) {
+                // ignore auto-gif failures; continue normal flow
+            }
+        }
+        if (lower === "status") {
+            await safeSendMessage(sock, jid, { text: "✅ Online. Bol bhai." }, { quoted: msg });
+            return;
+        }
+        if (lower === "health") {
+            const mem = process.memoryUsage();
+            const heap = (mem.heapUsed / 1024 / 1024).toFixed(1);
+            const rss = (mem.rss / 1024 / 1024).toFixed(1);
+            const upM = Math.floor(process.uptime() / 60);
+            await safeSendMessage(sock, jid, { text: `🧠 Health\n- Heap: ${heap}MB\n- RSS: ${rss}MB\n- Uptime: ${upM}m` }, { quoted: msg });
+            return;
+        }
+        if (lower === "stats") {
+            const s = userStats[jid] || { messages: 0, lastSeen: 0 };
+            const last = s.lastSeen ? new Date(s.lastSeen).toLocaleString() : "—";
+            await safeSendMessage(
+                sock,
+                jid,
+                { text: `📊 Your Stats\n- Messages: ${s.messages || 0}\n- Last seen: ${last}` },
+                { quoted: msg }
+            );
+            return;
+        }
+        if (lower === "gallery") {
+            const g = userMediaStats[jid] || { image: 0, video: 0, gif: 0, audio: 0, document: 0, sticker: 0 };
+            await safeSendMessage(
+                sock,
+                jid,
+                {
+                    text:
+                        `🖼️ Your Media Stats\n` +
+                        `- Images: ${g.image || 0}\n` +
+                        `- GIFs: ${g.gif || 0}\n` +
+                        `- Videos: ${g.video || 0}\n` +
+                        `- Audio: ${g.audio || 0}\n` +
+                        `- Docs: ${g.document || 0}\n` +
+                        `- Stickers: ${g.sticker || 0}`
+                },
+                { quoted: msg }
+            );
+            return;
+        }
+
+        // image <query>  (web image fetch via your existing deep search service)
+        if (lower.startsWith("image ")) {
+            const q = text.slice(6).trim();
+            if (!q) {
+                await safeSendMessage(sock, jid, { text: "Likho: image <kya chahiye>" }, { quoted: msg });
+                return;
+            }
+            const { searchWebImages } = require("../services/search");
+            const urls = await searchWebImages(q, 1);
+            if (!urls?.[0]) {
+                await safeSendMessage(sock, jid, { text: "Image nahi mili. Thora different keyword try kar." }, { quoted: msg });
+                return;
+            }
+            try {
+                const imgRes = await fetch(urls[0]);
+                if (!imgRes.ok) throw new Error(`HTTP ${imgRes.status}`);
+                const buffer = Buffer.from(await imgRes.arrayBuffer());
+                await safeSendMessage(sock, jid, { image: buffer, caption: `🖼️ ${q}` }, { quoted: msg });
+            } catch (e) {
+                await safeSendMessage(sock, jid, { text: "Image send fail ho gai — dobara try kar." }, { quoted: msg });
+            }
+            return;
+        }
+
+        // make image <prompt>  (AI generated image using your "image maker" engine)
+        if (
+            lower.startsWith("make image ") ||
+            lower.startsWith("make an image ") ||
+            lower.startsWith("generate image ") ||
+            lower.startsWith("create image ")
+        ) {
+            const promptText = text
+                .replace(/^make an image\s+/i, "")
+                .replace(/^make image\s+/i, "")
+                .replace(/^generate image\s+/i, "")
+                .replace(/^create image\s+/i, "")
+                .trim();
+            if (!promptText) {
+                await safeSendMessage(sock, jid, { text: "Likho: make image <prompt>" }, { quoted: msg });
+                return;
+            }
+            const buf = await generatePollinationsImage(promptText);
+            if (!buf) {
+                await safeSendMessage(sock, jid, { text: "Abhi image generate nahi ho saki — 10 sec baad try." }, { quoted: msg });
+                return;
+            }
+            await safeSendMessage(sock, jid, { image: buf, caption: `🎨 ${promptText}` }, { quoted: msg });
+            return;
+        }
+
+        // gif <query/category>
+        if (lower.startsWith("gif ")) {
+            const q = text.slice(4).trim();
+            if (!q) {
+                await safeSendMessage(sock, jid, { text: "Likho: gif <happy|anime|meme|hug|dance...>" }, { quoted: msg });
+                return;
+            }
+            const gifData = await getGif(q);
+            if (!gifData?.url) {
+                await safeSendMessage(sock, jid, { text: "GIF nahi mili. Another keyword try kar." }, { quoted: msg });
+                return;
+            }
+            try {
+                const mediaRes = await fetch(gifData.url, { redirect: "follow" });
+                if (!mediaRes.ok) throw new Error(`HTTP ${mediaRes.status}`);
+                const bodyBuf = Buffer.from(await mediaRes.arrayBuffer());
+                if (bodyBuf.length > 14 * 1024 * 1024) {
+                    await safeSendMessage(sock, jid, { text: "GIF bari thi, yeh link le: " + gifData.url }, { quoted: msg });
+                    return;
+                }
+                const urlLower = gifData.url.toLowerCase();
+                const ct = (mediaRes.headers.get("content-type") || "").toLowerCase();
+                const looksMp4 = gifData.isMp4 || urlLower.includes(".mp4") || ct.includes("video/mp4");
+                const looksWebm = urlLower.includes(".webm") || ct.includes("webm");
+                if (looksMp4 || looksWebm) {
+                    await safeSendMessage(sock, jid, {
+                        video: bodyBuf,
+                        mimetype: looksWebm ? "video/webm" : "video/mp4",
+                        gifPlayback: true
+                    });
+                } else {
+                    await safeSendMessage(sock, jid, { image: bodyBuf, mimetype: ct.includes("gif") ? "image/gif" : "image/jpeg" });
+                }
+            } catch (e) {
+                await safeSendMessage(sock, jid, { text: "GIF send fail ho gayi — dobara try kar." }, { quoted: msg });
+            }
+            return;
+        }
+
+        // song <name> / video <name>
+        if (lower.startsWith("song ")) {
+            const q = text.slice(5).trim();
+            if (!q) {
+                await safeSendMessage(sock, jid, { text: "Likho: song <name>" }, { quoted: msg });
+                return;
+            }
+            try {
+                const { searchAudio } = require("../services/search");
+                const audioBuffer = await searchAudio(q);
+                await safeSendMessage(sock, jid, { audio: audioBuffer, mimetype: "audio/mpeg", ptt: true }, { quoted: msg });
+            } catch (e) {
+                await safeSendMessage(sock, jid, { text: "Song load nahi hui — name thora change karke try kar." }, { quoted: msg });
+            }
+            return;
+        }
+        if (lower.startsWith("video ")) {
+            const q = text.slice(6).trim();
+            if (!q) {
+                await safeSendMessage(sock, jid, { text: "Likho: video <name>" }, { quoted: msg });
+                return;
+            }
+            try {
+                const { searchVideo } = require("../services/search");
+                const vidBuffer = await searchVideo(q);
+                await safeSendMessage(sock, jid, { video: vidBuffer, mimetype: "video/mp4" }, { quoted: msg });
+            } catch (e) {
+                await safeSendMessage(sock, jid, { text: "Video nahi mil raha — thora short keyword try kar." }, { quoted: msg });
+            }
+            return;
+        }
+
 
         if (lower === "stop" || lower === "break" || lower === "resume") {
             const res = userPauseCommand(jid, lower);
@@ -476,7 +691,8 @@ async function handleMessage(sock, msg) {
                 prompt = `[Voice note — ${ve.message || "transcription off"}. Mazhar style mein short jawab.]`;
             }
         }
-        // We only trigger AI if it's a private message or the bot is mentioned/replied to
+        // We only trigger AI if it's a private message or the bot is mentioned/replied to.
+        // Allow explicit command-style messages in groups without mention (menu/image/gif/song/etc).
         const isGroup = jid.endsWith("@g.us");
         const isMentioned = text.includes("@" + sock.user.id.split(":")[0]);
         const replyCtx =
@@ -488,8 +704,26 @@ async function handleMessage(sock, msg) {
             content.stickerMessage?.contextInfo ||
             null;
         const isReplyToMe = replyCtx?.participant === sock.user.id;
+        const isExplicitCommand =
+            lower === "menu" ||
+            lower === "help" ||
+            lower === "/menu" ||
+            lower === "/help" ||
+            lower === "status" ||
+            lower === "stats" ||
+            lower === "gallery" ||
+            lower === "health" ||
+            lower.startsWith("fs ") ||
+            lower.startsWith("image ") ||
+            lower.startsWith("gif ") ||
+            lower.startsWith("song ") ||
+            lower.startsWith("video ") ||
+            lower.startsWith("make image ") ||
+            lower.startsWith("make an image ") ||
+            lower.startsWith("generate image ") ||
+            lower.startsWith("create image ");
 
-        if (isGroup && !isMentioned && !isReplyToMe) return;
+        if (isGroup && !isMentioned && !isReplyToMe && !isExplicitCommand) return;
 
         // --- MANUAL MODE CHECK ---
         if (!isAiEnabled(jid)) {
@@ -771,7 +1005,6 @@ async function handleMessage(sock, msg) {
             );
             console.log(`✅ [SYSTEM] Text-first (before GIF/image): ${outEarly.substring(0, 40)}...`);
             await safeSendMessage(sock, jid, { text: outEarly }, { quoted: msg });
-            events.emit("ai_reply", { text: outEarly, jid: jid });
             assistantTextSent = true;
             const { getMemory, saveMemory } = require("../services/ai");
             const historyEarly = await getMemory(jid);
@@ -920,7 +1153,6 @@ async function handleMessage(sock, msg) {
             );
             console.log(`✅ [SYSTEM] Sending final clean reply: ${outFinal.substring(0, 30)}...`);
             await safeSendMessage(sock, jid, { text: outFinal }, { quoted: msg });
-            events.emit("ai_reply", { text: outFinal, jid: jid });
 
             const { getMemory, saveMemory } = require("../services/ai");
             const history = await getMemory(jid);

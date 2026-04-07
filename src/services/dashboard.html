@@ -888,6 +888,8 @@
     let chatTotalMessages = 0;
     let chatHasOlder = false;
     let oldestLoadedTs = null;
+    // Dedupe: prevent double-render of admin sends (local preview + server echo)
+    let lastLocalAdminSend = { jid: null, text: null, at: 0 };
 
     const chatToolbar = document.getElementById('chat-toolbar');
     const chatSearch = document.getElementById('chat-search');
@@ -1257,6 +1259,15 @@
             if (data.profilePic) document.getElementById('active-user-pic').src = data.profilePic;
             const bubble = data.role === 'whatsapp' ? 'whatsapp' : (data.role === 'admin' ? 'admin' : 'ai');
             const line = data.role === 'admin' && data.text && !/^👑/.test(data.text) ? ('👑 ' + data.text) : (data.text || '');
+
+            if (data.role === 'admin') {
+                const now = Date.now();
+                const same =
+                    lastLocalAdminSend.jid === data.jid &&
+                    lastLocalAdminSend.text === line &&
+                    now - lastLocalAdminSend.at < 2500;
+                if (same) return;
+            }
             appendBubble(bubble, line, Date.now(), data.media);
             feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' });
         }
@@ -1333,6 +1344,7 @@
             Date.now(),
             pendingAdminImageBase64 ? { type: 'image', url: pendingAdminImageBase64 } : null
         );
+        lastLocalAdminSend = { jid: currentJid, text: previewText, at: Date.now() };
 
         socket.emit('admin_reply', payload);
         mainInput.value = '';

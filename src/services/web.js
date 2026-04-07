@@ -188,6 +188,7 @@ function startWebServer() {
 
     // Listen to Global Events
     events.on("wa_message", (data) => io.emit("new_message", { role: "whatsapp", ...data }));
+    // AI replies are emitted by safeSendMessage() only. Keep a single source to avoid duplicates.
     events.on("ai_reply", (data) => io.emit("new_message", { role: "ai", ...data }));
     events.on("admin_outbound", (data) =>
         io.emit("new_message", {

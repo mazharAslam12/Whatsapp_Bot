@@ -25,4 +25,38 @@ async function searchImages(query, count = 1) {
     }
 }
 
-module.exports = { searchImages };
+/**
+ * Pollinations image generator – same provider used in your `image maker/` UI.
+ * Returns a Buffer so Baileys can send it as an image reliably.
+ */
+function buildPollinationsUrl(prompt, { width = 1024, height = 1024, model = "flux", seed = null } = {}) {
+    const basePrompt = (prompt || "ultra professional artwork").trim();
+    const cb = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const base = `https://image.pollinations.ai/prompt/${encodeURIComponent(basePrompt)}`;
+    const params = new URLSearchParams({
+        width: String(width),
+        height: String(height),
+        model: String(model || "flux"),
+        nologo: "true",
+        enhance: "false",
+        cb
+    });
+    const finalSeed = seed == null ? Math.floor(Math.random() * 2147483647) : seed;
+    params.set("seed", String(finalSeed));
+    return `${base}?${params.toString()}`;
+}
+
+async function generatePollinationsImage(prompt, opts = {}) {
+    const url = buildPollinationsUrl(prompt, opts);
+    console.log(`🖼️ [IMAGE GEN] Pollinations: ${url}`);
+    try {
+        const res = await fetch(url, { redirect: "follow" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return Buffer.from(await res.arrayBuffer());
+    } catch (e) {
+        console.error("❌ [IMAGE GEN] Failed:", e.message);
+        return null;
+    }
+}
+
+module.exports = { searchImages, buildPollinationsUrl, generatePollinationsImage };
