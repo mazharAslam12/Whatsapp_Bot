@@ -208,6 +208,10 @@ async function safeSendMessage(sock, jid, content, options = {}) {
     let retries = 3;
     while (retries > 0) {
         try {
+            // Force 1 emoji on every bot text message (unless explicitly disabled).
+            if (content && typeof content.text === "string" && options.disableAutoEmoji !== true) {
+                content.text = maybeAddOneEmoji(content.text, options.emojiUserText || content.text, options.emojiLangHint || "");
+            }
             // Send directly and let Baileys handle the queue/state internally
             const res = await sock.sendMessage(jid, content, options);
             console.log(`✅ [SYSTEM] Sent: ${Object.keys(content)[0]} to ${jid}`);
@@ -226,6 +230,34 @@ async function safeSendMessage(sock, jid, content, options = {}) {
         }
     }
     console.error("❌ [SYSTEM] Failed to send message after all retries.");
+}
+
+async function sendImageWithFallback(sock, jid, { buffer, caption, url }, msg) {
+    if (!buffer || !buffer.length) {
+        if (url) {
+            await safeSendMessage(sock, jid, { text: `Image link: ${url}` }, { quoted: msg });
+        }
+        return;
+    }
+    try {
+        await safeSendMessage(sock, jid, { image: buffer, caption: caption || "" }, { quoted: msg });
+        return;
+    } catch (e) {
+        // fallback 1: send as document (WhatsApp sometimes rejects image buffers)
+        try {
+            await safeSendMessage(
+                sock,
+                jid,
+                { document: buffer, mimetype: "image/jpeg", fileName: `image_${Date.now()}.jpg`, caption: caption || "" },
+                { quoted: msg }
+            );
+            return;
+        } catch (e2) {
+            if (url) {
+                await safeSendMessage(sock, jid, { text: `Image link: ${url}` }, { quoted: msg });
+            }
+        }
+    }
 }
 
 function sanitizeFileName(name) {
@@ -508,7 +540,12 @@ async function handleMessage(sock, msg) {
                         { text: maybeAddOneEmoji(`Generating ${i + 1}/${variants.length}: ${v.label}\n${renderProgressBar(pct)}`, text, buildLanguageHint(text)) },
                         { quoted: msg }
                     );
-                    await safeSendMessage(sock, jid, { image: v.buffer, caption: `🖼️ ${v.label}\n${finalPrompt}` }, { quoted: msg });
+                    await sendImageWithFallback(
+                        sock,
+                        jid,
+                        { buffer: v.buffer, caption: `🖼️ ${v.label}\n${finalPrompt}`, url: v.url },
+                        msg
+                    );
                 }
                 await safeSendMessage(
                     sock,
@@ -668,7 +705,7 @@ async function handleMessage(sock, msg) {
                     { text: maybeAddOneEmoji(`Generating ${i + 1}/${variants.length}: ${v.label}\n${renderProgressBar(pct)}`, text, buildLanguageHint(text)) },
                     { quoted: msg }
                 );
-                await safeSendMessage(sock, jid, { image: v.buffer, caption: `🎨 ${v.label}\n${promptText}` }, { quoted: msg });
+                await sendImageWithFallback(sock, jid, { buffer: v.buffer, caption: `🎨 ${v.label}\n${promptText}`, url: v.url }, msg);
             }
             await safeSendMessage(
                 sock,
@@ -1129,7 +1166,12 @@ async function handleMessage(sock, msg) {
                             { text: maybeAddOneEmoji(`Generating ${i + 1}/${variants.length}: ${v.label}\n${renderProgressBar(pct)}`, text, langHint) },
                             { quoted: msg }
                         );
-                        await safeSendMessage(sock, jid, { image: v.buffer, caption: `🖼️ ${v.label}\n${promptText}` }, { quoted: msg });
+                        await sendImageWithFallback(
+                            sock,
+                            jid,
+                            { buffer: v.buffer, caption: `🖼️ ${v.label}\n${promptText}`, url: v.url },
+                            msg
+                        );
                     }
                     await safeSendMessage(
                         sock,

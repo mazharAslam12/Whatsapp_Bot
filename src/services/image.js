@@ -50,7 +50,10 @@ async function generatePollinationsImage(prompt, opts = {}) {
     const url = buildPollinationsUrl(prompt, opts);
     console.log(`🖼️ [IMAGE GEN] Pollinations: ${url}`);
     try {
-        const res = await fetch(url, { redirect: "follow" });
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 20000);
+        const res = await fetch(url, { redirect: "follow", signal: controller.signal });
+        clearTimeout(t);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return Buffer.from(await res.arrayBuffer());
     } catch (e) {
@@ -75,8 +78,10 @@ async function generatePollinationsImageVariants(prompt, { count = 2, width = 10
     const picks = STYLE_VARIANTS.slice(0, safeCount);
     const results = [];
     for (const v of picks) {
-        const buf = await generatePollinationsImage(`${base}${v.suffix}`, { width, height, model });
-        if (buf && buf.length) results.push({ label: v.label, buffer: buf });
+        const fullPrompt = `${base}${v.suffix}`;
+        const url = buildPollinationsUrl(fullPrompt, { width, height, model });
+        const buf = await generatePollinationsImage(fullPrompt, { width, height, model });
+        if (buf && buf.length) results.push({ label: v.label, buffer: buf, url });
     }
     return results;
 }

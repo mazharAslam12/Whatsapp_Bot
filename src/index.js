@@ -56,7 +56,7 @@ events.on("send_whatsapp", async (data) => {
                     sock,
                     targetJid,
                     { image: data.imageBuffer, caption },
-                    { skipAiReplyEvent: true }
+                    { skipAiReplyEvent: true, disableAutoEmoji: true }
                 );
                 events.emit("admin_outbound", {
                     jid: targetJid,
@@ -64,7 +64,7 @@ events.on("send_whatsapp", async (data) => {
                     media: { type: "image", url: `/media/${fname}` }
                 });
             } else {
-                await safeSendMessage(sock, targetJid, { text }, { skipAiReplyEvent: true });
+                await safeSendMessage(sock, targetJid, { text }, { skipAiReplyEvent: true, disableAutoEmoji: true });
                 events.emit("admin_outbound", { jid: targetJid, text });
             }
             console.log(`✅ [DASHBOARD] Delivered to ${targetJid}`);
