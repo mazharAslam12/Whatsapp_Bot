@@ -62,19 +62,54 @@ async function generatePollinationsImage(prompt, opts = {}) {
     }
 }
 
-// Style variants copied from `image maker/script.js` so WhatsApp can generate multi-style images too.
+// Style variants synced from `image maker/script.js`
 const STYLE_VARIANTS = [
-    { label: "Balanced", suffix: "" },
-    { label: "Photoreal", suffix: ", photorealistic, 8k uhd, detailed texture, natural lighting, shot on full frame" },
-    { label: "Anime", suffix: ", anime style, clean line art, vibrant colors, cel shading, high detail" },
-    { label: "3D render", suffix: ", 3d render, octane render, studio lighting, subsurface scattering, highly detailed" },
-    { label: "Cinematic", suffix: ", cinematic composition, dramatic lighting, film grain, wide angle, color graded" },
-    { label: "Oil paint", suffix: ", oil painting, visible brush strokes, rich impasto, museum quality" }
+    { label: 'Balanced', desc: 'General purpose', suffix: '' },
+    { label: 'Photoreal', desc: 'Sharp, natural', suffix: ', photorealistic, 8k uhd, detailed texture, natural lighting, shot on full frame' },
+    { label: 'Anime', desc: 'Illustration', suffix: ', anime style, clean line art, vibrant colors, cel shading, high detail' },
+    { label: '3D render', desc: 'CGI look', suffix: ', 3d render, octane render, studio lighting, subsurface scattering, highly detailed' },
+    { label: 'Cinematic', desc: 'Film still', suffix: ', cinematic composition, dramatic lighting, film grain, wide angle, color graded' },
+    { label: 'Oil paint', desc: 'Fine art', suffix: ', oil painting, visible brush strokes, rich impasto, museum quality' }
 ];
+
+/**
+ * Describe the reference image so text-to-image can follow it (Pollinations vision API).
+ * Ported from image maker/script.js for bot use.
+ */
+async function analyzeReferenceImage(dataUrl) {
+    const payload = {
+        model: 'openai',
+        messages: [{
+            role: 'user',
+            content: [
+                {
+                    type: 'text',
+                    text: 'Describe ONLY what is visible in this image: main subjects, poses, colors, materials, lighting, background, art style, and composition. Be concrete. No preamble — max 1200 characters.'
+                },
+                { type: 'image_url', image_url: { url: dataUrl } }
+            ]
+        }],
+        max_tokens: 500,
+        temperature: 0.3
+    };
+    try {
+        const res = await fetch('https://text.pollinations.ai/openai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Vision request failed');
+        const data = await res.json();
+        return data.choices?.[0]?.message?.content?.trim();
+    } catch (err) {
+        console.warn('Vision analysis failed', err);
+        return null;
+    }
+}
 
 async function generatePollinationsImageVariants(prompt, { count = 2, width = 1024, height = 1024, model = "flux" } = {}) {
     const base = (prompt || "").trim();
-    const safeCount = Math.min(Math.max(parseInt(count, 10) || 2, 1), 4);
+    const safeCount = Math.min(Math.max(parseInt(count, 10) || 2, 1), STYLE_VARIANTS.length);
     const picks = STYLE_VARIANTS.slice(0, safeCount);
     const results = [];
     for (const v of picks) {
@@ -91,5 +126,6 @@ module.exports = {
     buildPollinationsUrl,
     generatePollinationsImage,
     generatePollinationsImageVariants,
+    analyzeReferenceImage,
     STYLE_VARIANTS
 };

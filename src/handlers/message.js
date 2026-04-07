@@ -22,6 +22,7 @@ const lastFeelingPromptAt = new Map();
 const BURST_WINDOW_MS = 1200;
 const pendingBurstByJid = new Map(); // jid -> { timer, items: { plain, singleUserLine }[], pushName }
 const lastMediaTagByJid = new Map(); // jid -> { key, at }
+const sentGifUrlsByJid = new Map(); // jid -> Set of recent URL hashes to avoid repeats
 const MEDIA_TAG_COOLDOWN_MS = 45 * 60 * 1000;
 
 // Rude handling ladder (C then B then A): clapback → warning → mute 30m → permanent mute
@@ -257,6 +258,52 @@ async function sendImageWithFallback(sock, jid, { buffer, caption, url }, msg) {
                 await safeSendMessage(sock, jid, { text: `Image link: ${url}` }, { quoted: msg });
             }
         }
+    }
+}
+
+/** 
+ * Dedicated GIF sender to ensure GIFs "sand" (send) perfectly.
+ * Handles MP4-as-GIF and literal GIF buffers.
+ */
+async function sendGif(sock, jid, { buffer, url, caption, isMp4 }, quoted = null) {
+    if (!buffer || !buffer.length) return;
+    
+    // Check for repetition
+    const sent = sentGifUrlsByJid.get(jid) || new Set();
+    if (sent.has(url)) {
+        console.log(`♻️ [GIF] Skipping repeat URL for ${jid}: ${url}`);
+        return false;
+    }
+    
+    try {
+        const looksMp4 = isMp4 || url?.toLowerCase().includes(".mp4");
+        if (looksMp4) {
+             await safeSendMessage(sock, jid, {
+                video: buffer,
+                mimetype: "video/mp4",
+                gifPlayback: true,
+                caption: caption || ""
+            }, { quoted });
+        } else {
+            await safeSendMessage(sock, jid, {
+                image: buffer,
+                mimetype: "image/gif",
+                caption: caption || ""
+            }, { quoted });
+        }
+        
+        // Track successfully sent GIF to avoid immediate repeats
+        sent.add(url);
+        if (sent.size > 10) {
+            const first = sent.values().next().value;
+            sent.delete(first);
+        }
+        sentGifUrlsByJid.set(jid, sent);
+        
+        return true;
+    } catch (e) {
+        console.error("❌ [GIF SEND FAIL]", e.message);
+        return false;
     }
 }
 
@@ -511,7 +558,7 @@ async function handleMessage(sock, msg) {
                 const promptText = tail ? tail.replace(/^[:\-–—]\s*/, "").trim() : "";
                 const finalPrompt = promptText || text.trim() || "ultra professional aesthetic wallpaper, cinematic lighting, high detail";
 
-                const ack = maybeAddOneEmoji("Theek hai — bana raha hoon.", text, buildLanguageHint(text));
+                const ack = maybeAddOneEmoji("Understood. I am processing your request now.", text, buildLanguageHint(text));
                 await safeSendMessage(sock, jid, { text: ack }, { quoted: msg });
 
                 await safeSendMessage(
@@ -557,47 +604,39 @@ async function handleMessage(sock, msg) {
             }
         }
 
-        // Auto-GIF reply: if user sends a GIF with no caption (private chat), send a different GIF back.
+        // Auto-GIF reply: if user sends a GIF (private chat), send a different, premium GIF back.
         if (mediaType === "gif" && !jid.endsWith("@g.us")) {
-            // React to inbound GIF (always)
+            // React with a professional acknowledgement
             try {
-                await safeSendMessage(sock, jid, { react: { text: "🔥", key: msg.key } });
+                await safeSendMessage(sock, jid, { react: { text: "💎", key: msg.key } });
             } catch (e) {}
 
             try {
-                // If user added a caption, use it as hint. Otherwise default.
-                const hint = (text && text.trim().length ? text.trim() : "happy");
+                const hint = (text && text.trim().length ? text.trim() : "professional success");
                 const gifData = await getGif(hint);
                 if (gifData?.url) {
                     const mediaRes = await fetch(gifData.url, { redirect: "follow" });
                     if (mediaRes.ok) {
                         const bodyBuf = Buffer.from(await mediaRes.arrayBuffer());
-                        if (bodyBuf.length > 14 * 1024 * 1024) {
-                            await safeSendMessage(sock, jid, { text: "GIF bari thi, yeh link le: " + gifData.url }, { quoted: msg });
+                        if (bodyBuf.length > 20 * 1024 * 1024) { 
+                            await safeSendMessage(sock, jid, { text: "The requested asset exceeds transmission limits. Direct Link: " + gifData.url }, { quoted: msg });
                             return;
                         }
-                        const urlLower = gifData.url.toLowerCase();
-                        const ct = (mediaRes.headers.get("content-type") || "").toLowerCase();
-                        const looksMp4 = gifData.isMp4 || urlLower.includes(".mp4") || ct.includes("video/mp4");
-                        const looksWebm = urlLower.includes(".webm") || ct.includes("webm");
-                        if (looksMp4 || looksWebm) {
-                            await safeSendMessage(sock, jid, {
-                                video: bodyBuf,
-                                mimetype: looksWebm ? "video/webm" : "video/mp4",
-                                gifPlayback: true
-                            });
-                        } else {
-                            await safeSendMessage(sock, jid, { image: bodyBuf, mimetype: ct.includes("gif") ? "image/gif" : "image/jpeg" });
-                        }
+                        await sendGif(sock, jid, { 
+                            buffer: bodyBuf, 
+                            url: gifData.url, 
+                            isMp4: gifData.isMp4,
+                            caption: "Refined response for you."
+                        }, msg);
                         return;
                     }
                 }
             } catch (e) {
-                // ignore auto-gif failures; continue normal flow
+                console.error("⚠️ [AUTO-GIF] Interaction failed:", e.message);
             }
         }
         if (lower === "status") {
-            await safeSendMessage(sock, jid, { text: "✅ Online. Bol bhai." }, { quoted: msg });
+            await safeSendMessage(sock, jid, { text: "✅ System Operational. How may I assist you?" }, { quoted: msg });
             return;
         }
         if (lower === "health") {
@@ -643,13 +682,13 @@ async function handleMessage(sock, msg) {
         if (lower.startsWith("image ")) {
             const q = text.slice(6).trim();
             if (!q) {
-                await safeSendMessage(sock, jid, { text: "Likho: image <kya chahiye>" }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Please provide a query: image <subject>" }, { quoted: msg });
                 return;
             }
             const { searchWebImages } = require("../services/search");
             const urls = await searchWebImages(q, 1);
             if (!urls?.[0]) {
-                await safeSendMessage(sock, jid, { text: "Image nahi mili. Thora different keyword try kar." }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "I could not locate a suitable image. Please refine your keyword." }, { quoted: msg });
                 return;
             }
             try {
@@ -658,7 +697,7 @@ async function handleMessage(sock, msg) {
                 const buffer = Buffer.from(await imgRes.arrayBuffer());
                 await safeSendMessage(sock, jid, { image: buffer, caption: `🖼️ ${q}` }, { quoted: msg });
             } catch (e) {
-                await safeSendMessage(sock, jid, { text: "Image send fail ho gai — dobara try kar." }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Transmission failed. Kindly attempt your request again." }, { quoted: msg });
             }
             return;
         }
@@ -691,7 +730,7 @@ async function handleMessage(sock, msg) {
                 await safeSendMessage(
                     sock,
                     jid,
-                    { text: maybeAddOneEmoji("Abhi image generate nahi ho saki — 10 sec baad try.", text, buildLanguageHint(text)) },
+                    { text: maybeAddOneEmoji("The image generation pipeline is currently occupied. Please retry in a few moments.", text, buildLanguageHint(text)) },
                     { quoted: msg }
                 );
                 return;
@@ -710,7 +749,7 @@ async function handleMessage(sock, msg) {
             await safeSendMessage(
                 sock,
                 jid,
-                { text: maybeAddOneEmoji(`Done ✅\n${renderProgressBar(100)}`, text, buildLanguageHint(text)) },
+                { text: maybeAddOneEmoji(`Generation Complete ✅\n${renderProgressBar(100)}`, text, buildLanguageHint(text)) },
                 { quoted: msg }
             );
             return;
@@ -720,37 +759,30 @@ async function handleMessage(sock, msg) {
         if (lower.startsWith("gif ")) {
             const q = text.slice(4).trim();
             if (!q) {
-                await safeSendMessage(sock, jid, { text: "Likho: gif <happy|anime|meme|hug|dance...>" }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Please specify a category: gif <category>" }, { quoted: msg });
                 return;
             }
             const gifData = await getGif(q);
             if (!gifData?.url) {
-                await safeSendMessage(sock, jid, { text: "GIF nahi mili. Another keyword try kar." }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "No results matched your query. Please try an alternative term." }, { quoted: msg });
                 return;
             }
             try {
                 const mediaRes = await fetch(gifData.url, { redirect: "follow" });
                 if (!mediaRes.ok) throw new Error(`HTTP ${mediaRes.status}`);
                 const bodyBuf = Buffer.from(await mediaRes.arrayBuffer());
-                if (bodyBuf.length > 14 * 1024 * 1024) {
-                    await safeSendMessage(sock, jid, { text: "GIF bari thi, yeh link le: " + gifData.url }, { quoted: msg });
+                if (bodyBuf.length > 20 * 1024 * 1024) {
+                    await safeSendMessage(sock, jid, { text: "Asset exceeds transmission limits. Link: " + gifData.url }, { quoted: msg });
                     return;
                 }
-                const urlLower = gifData.url.toLowerCase();
-                const ct = (mediaRes.headers.get("content-type") || "").toLowerCase();
-                const looksMp4 = gifData.isMp4 || urlLower.includes(".mp4") || ct.includes("video/mp4");
-                const looksWebm = urlLower.includes(".webm") || ct.includes("webm");
-                if (looksMp4 || looksWebm) {
-                    await safeSendMessage(sock, jid, {
-                        video: bodyBuf,
-                        mimetype: looksWebm ? "video/webm" : "video/mp4",
-                        gifPlayback: true
-                    });
-                } else {
-                    await safeSendMessage(sock, jid, { image: bodyBuf, mimetype: ct.includes("gif") ? "image/gif" : "image/jpeg" });
-                }
+                await sendGif(sock, jid, { 
+                    buffer: bodyBuf, 
+                    url: gifData.url, 
+                    isMp4: gifData.isMp4,
+                    caption: `Strategy: ${q}`
+                }, msg);
             } catch (e) {
-                await safeSendMessage(sock, jid, { text: "GIF send fail ho gayi — dobara try kar." }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "GIF transmission failed. Please retry." }, { quoted: msg });
             }
             return;
         }
@@ -759,7 +791,7 @@ async function handleMessage(sock, msg) {
         if (lower.startsWith("song ")) {
             const q = text.slice(5).trim();
             if (!q) {
-                await safeSendMessage(sock, jid, { text: "Likho: song <name>" }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Please provide the track name: song <name>" }, { quoted: msg });
                 return;
             }
             try {
@@ -767,7 +799,7 @@ async function handleMessage(sock, msg) {
                 const audioBuffer = await searchAudio(q);
                 await safeSendMessage(sock, jid, { audio: audioBuffer, mimetype: "audio/mpeg", ptt: true }, { quoted: msg });
             } catch (e) {
-                await safeSendMessage(sock, jid, { text: "Song load nahi hui — name thora change karke try kar." }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Audio retrieval failed. Please refine your search." }, { quoted: msg });
             }
             return;
         }
@@ -782,7 +814,7 @@ async function handleMessage(sock, msg) {
                 const vidBuffer = await searchVideo(q);
                 await safeSendMessage(sock, jid, { video: vidBuffer, mimetype: "video/mp4" }, { quoted: msg });
             } catch (e) {
-                await safeSendMessage(sock, jid, { text: "Video nahi mil raha — thora short keyword try kar." }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Video retrieval failed. Please try a different query." }, { quoted: msg });
             }
             return;
         }
@@ -1219,46 +1251,35 @@ async function handleMessage(sock, msg) {
             const category = gifMatch[1].toLowerCase();
             const last = lastMediaTagByJid.get(jid);
             if (last && last.key === `gif:${category}` && Date.now() - last.at < MEDIA_TAG_COOLDOWN_MS) {
-                // Skip repeating same GIF category too often
+                // Avoid excessive repetition
             } else {
-            const gifData = await getGif(category);
-
-            if (gifData && gifData.url) {
-                try {
-                    const mediaRes = await fetch(gifData.url, { redirect: "follow" });
-                    if (!mediaRes.ok) throw new Error(`HTTP ${mediaRes.status}`);
-                    const bodyBuf = Buffer.from(await mediaRes.arrayBuffer());
-                    const urlLower = gifData.url.toLowerCase();
-                    const ct = (mediaRes.headers.get("content-type") || "").toLowerCase();
-                    const looksMp4 = gifData.isMp4 || urlLower.includes(".mp4") || ct.includes("video/mp4");
-                    const looksWebm = urlLower.includes(".webm") || ct.includes("webm");
-
-                    if (looksMp4 || looksWebm) {
-                        await safeSendMessage(sock, jid, {
-                            video: bodyBuf,
-                            mimetype: looksWebm ? "video/webm" : "video/mp4",
-                            gifPlayback: true
+                const gifData = await getGif(category);
+                if (gifData && gifData.url) {
+                    try {
+                        const mediaRes = await fetch(gifData.url, { redirect: "follow" });
+                        if (!mediaRes.ok) throw new Error(`HTTP ${mediaRes.status}`);
+                        const bodyBuf = Buffer.from(await mediaRes.arrayBuffer());
+                        
+                        const sent = await sendGif(sock, jid, { 
+                            buffer: bodyBuf, 
+                            url: gifData.url, 
+                            isMp4: gifData.isMp4,
+                            caption: "Strategic Asset Delivery."
                         });
-                    } else {
-                        // Static PNG/JPEG/WebP from fallbacks — send as image (WhatsApp rejects many as fake "GIF" video)
-                        let mime = "image/jpeg";
-                        if (ct.includes("png") || urlLower.includes(".png")) mime = "image/png";
-                        else if (ct.includes("webp") || urlLower.includes(".webp")) mime = "image/webp";
-                        else if (ct.includes("gif") || urlLower.includes(".gif")) mime = "image/gif";
-                        await safeSendMessage(sock, jid, { image: bodyBuf, mimetype: mime, caption: "🔥" });
-                    }
 
-                    const { getMemory, saveMemory } = require("../services/ai");
-                    const history = await getMemory(jid);
-                    if (history.length && history[history.length - 1].role === "assistant") {
-                        history[history.length - 1].media = { type: "gif", url: gifData.url };
-                        await saveMemory(jid, history);
+                        if (sent) {
+                            const { getMemory, saveMemory } = require("../services/ai");
+                            const history = await getMemory(jid);
+                            if (history.length && history[history.length - 1].role === "assistant") {
+                                history[history.length - 1].media = { type: "gif", url: gifData.url };
+                                await saveMemory(jid, history);
+                            }
+                            lastMediaTagByJid.set(jid, { key: `gif:${category}`, at: Date.now() });
+                        }
+                    } catch (e) {
+                        console.error("❌ GIF trigger failed:", e.message);
                     }
-                    lastMediaTagByJid.set(jid, { key: `gif:${category}`, at: Date.now() });
-                } catch (e) {
-                    console.error("❌ GIF fetch/send failed:", e.message);
                 }
-            }
             }
         }
 
