@@ -462,10 +462,33 @@ async function handleMessage(sock, msg) {
 
         // --- COMMAND ROUTER (works in private + group) ---
         // These are the commands shown in `menu`. Handle them directly so they always work.
+        // If user says "send/sand image" in natural language, generate an AI image (Pollinations).
+        if (!jid.endsWith("@g.us")) {
+            const sendImageMatch = lower.match(/\b(sand|send|bhej|bhej)\s+(me\s+)?(an?\s+)?(image|pic|picture|photo)\b([\s\S]*)/i);
+            if (sendImageMatch) {
+                const tail = (sendImageMatch[5] || "").trim();
+                const promptText = tail ? tail.replace(/^[:\-–—]\s*/, "").trim() : "";
+                const finalPrompt = promptText || "ultra professional aesthetic wallpaper, high detail, cinematic lighting";
+                const buf = await generatePollinationsImage(finalPrompt);
+                if (!buf) {
+                    await safeSendMessage(sock, jid, { text: maybeAddOneEmoji("Abhi image generate nahi ho saki — 10 sec baad try.", text, buildLanguageHint(text)) }, { quoted: msg });
+                    return;
+                }
+                await safeSendMessage(sock, jid, { image: buf, caption: `🖼️ ${finalPrompt}` }, { quoted: msg });
+                return;
+            }
+        }
+
         // Auto-GIF reply: if user sends a GIF with no caption (private chat), send a different GIF back.
-        if (mediaType === "gif" && !jid.endsWith("@g.us") && !text) {
+        if (mediaType === "gif" && !jid.endsWith("@g.us")) {
+            // React to inbound GIF (always)
             try {
-                const hint = "happy";
+                await safeSendMessage(sock, jid, { react: { text: "🔥", key: msg.key } });
+            } catch (e) {}
+
+            try {
+                // If user added a caption, use it as hint. Otherwise default.
+                const hint = (text && text.trim().length ? text.trim() : "happy");
                 const gifData = await getGif(hint);
                 if (gifData?.url) {
                     const mediaRes = await fetch(gifData.url, { redirect: "follow" });
@@ -931,7 +954,8 @@ async function handleMessage(sock, msg) {
                 const researchPrompt = `Translate and explain this info briefly, casually, and naturally in your persona. Match the user's language: ${webReport}`;
 
                 const synthesis = await mazharAiReply(researchPrompt, jid, "System_Research");
-                await safeSendMessage(sock, jid, { text: synthesis.trim() });
+                const synthOut = maybeAddOneEmoji(String(synthesis || "").trim(), text || prompt, buildLanguageHint((text || "") + " " + (prompt || "")));
+                await safeSendMessage(sock, jid, { text: synthOut });
 
                 // Image Fetching logic
                 if (researchResult.images.length > 0) {
@@ -954,7 +978,7 @@ async function handleMessage(sock, msg) {
 
                 if (researchResult.video && researchResult.video.length > 0) {
                     const topVid = researchResult.video[0];
-                    await safeSendMessage(sock, jid, { text: `🎬 *Video Found:* ${topVid.url}` });
+                    await safeSendMessage(sock, jid, { text: maybeAddOneEmoji(`🎬 Video Found: ${topVid.url}`, text || prompt, buildLanguageHint((text || "") + " " + (prompt || ""))) });
                 }
                 return; // STOP execution of other triggers
             }
