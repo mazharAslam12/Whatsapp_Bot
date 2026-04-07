@@ -558,7 +558,7 @@ async function handleMessage(sock, msg) {
                 const promptText = tail ? tail.replace(/^[:\-–—]\s*/, "").trim() : "";
                 const finalPrompt = promptText || text.trim() || "ultra professional aesthetic wallpaper, cinematic lighting, high detail";
 
-                const ack = maybeAddOneEmoji("Understood. I am processing your request now.", text, buildLanguageHint(text));
+                const ack = maybeAddOneEmoji("Processing pipeline initialized.", text, buildLanguageHint(text));
                 await safeSendMessage(sock, jid, { text: ack }, { quoted: msg });
 
                 await safeSendMessage(
@@ -636,7 +636,7 @@ async function handleMessage(sock, msg) {
             }
         }
         if (lower === "status") {
-            await safeSendMessage(sock, jid, { text: "✅ System Operational. How may I assist you?" }, { quoted: msg });
+            await safeSendMessage(sock, jid, { text: "✅ System Core: Operational." }, { quoted: msg });
             return;
         }
         if (lower === "health") {
@@ -682,13 +682,13 @@ async function handleMessage(sock, msg) {
         if (lower.startsWith("image ")) {
             const q = text.slice(6).trim();
             if (!q) {
-                await safeSendMessage(sock, jid, { text: "Please provide a query: image <subject>" }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Query required: image <subject>" }, { quoted: msg });
                 return;
             }
             const { searchWebImages } = require("../services/search");
             const urls = await searchWebImages(q, 1);
             if (!urls?.[0]) {
-                await safeSendMessage(sock, jid, { text: "I could not locate a suitable image. Please refine your keyword." }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "No results matched." }, { quoted: msg });
                 return;
             }
             try {
@@ -697,7 +697,7 @@ async function handleMessage(sock, msg) {
                 const buffer = Buffer.from(await imgRes.arrayBuffer());
                 await safeSendMessage(sock, jid, { image: buffer, caption: `🖼️ ${q}` }, { quoted: msg });
             } catch (e) {
-                await safeSendMessage(sock, jid, { text: "Transmission failed. Kindly attempt your request again." }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Transmission fail. Retry." }, { quoted: msg });
             }
             return;
         }
@@ -730,7 +730,7 @@ async function handleMessage(sock, msg) {
                 await safeSendMessage(
                     sock,
                     jid,
-                    { text: maybeAddOneEmoji("The image generation pipeline is currently occupied. Please retry in a few moments.", text, buildLanguageHint(text)) },
+                    { text: maybeAddOneEmoji("Pipeline occupied. Retry momentarily.", text, buildLanguageHint(text)) },
                     { quoted: msg }
                 );
                 return;
@@ -759,12 +759,12 @@ async function handleMessage(sock, msg) {
         if (lower.startsWith("gif ")) {
             const q = text.slice(4).trim();
             if (!q) {
-                await safeSendMessage(sock, jid, { text: "Please specify a category: gif <category>" }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Query required: gif <category>" }, { quoted: msg });
                 return;
             }
             const gifData = await getGif(q);
             if (!gifData?.url) {
-                await safeSendMessage(sock, jid, { text: "No results matched your query. Please try an alternative term." }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "No matches found." }, { quoted: msg });
                 return;
             }
             try {
@@ -782,7 +782,7 @@ async function handleMessage(sock, msg) {
                     caption: `Strategy: ${q}`
                 }, msg);
             } catch (e) {
-                await safeSendMessage(sock, jid, { text: "GIF transmission failed. Please retry." }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "GIF transmission failed." }, { quoted: msg });
             }
             return;
         }
@@ -791,7 +791,7 @@ async function handleMessage(sock, msg) {
         if (lower.startsWith("song ")) {
             const q = text.slice(5).trim();
             if (!q) {
-                await safeSendMessage(sock, jid, { text: "Please provide the track name: song <name>" }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Track name required: song <name>" }, { quoted: msg });
                 return;
             }
             try {
@@ -799,7 +799,7 @@ async function handleMessage(sock, msg) {
                 const audioBuffer = await searchAudio(q);
                 await safeSendMessage(sock, jid, { audio: audioBuffer, mimetype: "audio/mpeg", ptt: true }, { quoted: msg });
             } catch (e) {
-                await safeSendMessage(sock, jid, { text: "Audio retrieval failed. Please refine your search." }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Audio retrieval failed." }, { quoted: msg });
             }
             return;
         }
@@ -814,7 +814,7 @@ async function handleMessage(sock, msg) {
                 const vidBuffer = await searchVideo(q);
                 await safeSendMessage(sock, jid, { video: vidBuffer, mimetype: "video/mp4" }, { quoted: msg });
             } catch (e) {
-                await safeSendMessage(sock, jid, { text: "Video retrieval failed. Please try a different query." }, { quoted: msg });
+                await safeSendMessage(sock, jid, { text: "Video retrieval failed." }, { quoted: msg });
             }
             return;
         }
@@ -1178,9 +1178,11 @@ async function handleMessage(sock, msg) {
         // 3. MEDIA TRIGGERS
         const imgMatch = aiReply.match(/\[IMG_SEARCH:\s*(.*?)\]/i);
         if (imgMatch) {
-            // If the USER's original message was asking to "send/sand images", generate AI images instead of web-search.
-            if (!jid.endsWith("@g.us") && /\b(sand|send|bhej)\b/i.test(lower) && /\b(image|images|pic|pics|photo|photos)\b/i.test(lower)) {
-                const promptText = (imgMatch[1] || "").trim() || text.trim();
+            const promptText = (imgMatch[1] || "").trim() || text.trim();
+            const q = promptText.toLowerCase();
+
+            // Explicitly force AI Image Generation if the user asked to "make", "create", "generate", "sand", "send", etc.
+            if (!jid.endsWith("@g.us") && /\b(make|create|generate|sand|send|bhej|banao|bana)\b/i.test(lower) && /\b(image|images|pic|pics|photo|photos|dp|wallpaper)\b/i.test(lower)) {
                 await safeSendMessage(
                     sock,
                     jid,
@@ -1208,40 +1210,41 @@ async function handleMessage(sock, msg) {
                     await safeSendMessage(
                         sock,
                         jid,
-                        { text: maybeAddOneEmoji(`Done ✅\n${renderProgressBar(100)}`, text, langHint) },
+                        { text: maybeAddOneEmoji(`Generation Complete ✅\n${renderProgressBar(100)}`, text, langHint) },
                         { quoted: msg }
                     );
+                } else {
+                    await safeSendMessage(sock, jid, { text: "Pipeline occupied. Retry momentarily." }, { quoted: msg });
                 }
                 return;
             }
-            const q = (imgMatch[1] || "").trim().toLowerCase();
+
+            // Fallback to Web Search for normal image discoveries
             const last = lastMediaTagByJid.get(jid);
             if (last && last.key === `img:${q}` && Date.now() - last.at < MEDIA_TAG_COOLDOWN_MS) {
-                // Skip repeating the same image query too often
+                // Skip repeat
             } else {
-            const { searchWebImages } = require("../services/search");
-            const urls = await searchWebImages(imgMatch[1], 1);
-            if (urls?.[0]) {
-                try {
-                    // Buffer level fetch for max reliability
-                    const imgRes = await fetch(urls[0]);
-                    if (imgRes.ok) {
-                        const buffer = Buffer.from(await imgRes.arrayBuffer());
-                        await safeSendMessage(sock, jid, { image: buffer, caption: "💎 Mazhar DevX Discovery" });
-                        
-                        // Save to memory
-                        const { getMemory, saveMemory } = require("../services/ai");
-                        const history = await getMemory(jid);
-                        if (history.length && history[history.length - 1].role === "assistant") {
-                            history[history.length - 1].media = { type: "image", url: urls[0] };
-                            await saveMemory(jid, history);
+                const { searchWebImages } = require("../services/search");
+                const urls = await searchWebImages(promptText, 1);
+                if (urls?.[0]) {
+                    try {
+                        const imgRes = await fetch(urls[0]);
+                        if (imgRes.ok) {
+                            const buffer = Buffer.from(await imgRes.arrayBuffer());
+                            await safeSendMessage(sock, jid, { image: buffer, caption: "💎 Mazhar DevX Discovery" });
+                            
+                            const { getMemory, saveMemory } = require("../services/ai");
+                            const history = await getMemory(jid);
+                            if (history.length && history[history.length - 1].role === "assistant") {
+                                history[history.length - 1].media = { type: "image", url: urls[0] };
+                                await saveMemory(jid, history);
+                            }
+                            lastMediaTagByJid.set(jid, { key: `img:${q}`, at: Date.now() });
                         }
-                        lastMediaTagByJid.set(jid, { key: `img:${q}`, at: Date.now() });
+                    } catch (e) {
+                        console.error("❌ Image buffer fetch fail:", e.message);
                     }
-                } catch (e) {
-                    console.error("❌ Image buffer fetch fail:", e.message);
                 }
-            }
             }
         }
 
