@@ -120,18 +120,18 @@ function buildLanguageHint(text) {
             t
         );
     if (hasArabicScript && !hasLatin) {
-        return "[LANGUAGE: User wrote in Urdu/Arabic script — reply in that script naturally.]\n";
+        return "[LANGUAGE: User wrote in Urdu/Arabic script — reply ONLY in Urdu/Arabic script. No English unless they ask for it.]\n";
     }
     if (hasLatin && !hasArabicScript && romanUrduHints) {
-        return "[LANGUAGE: User wrote **Roman Urdu** — reply in Roman Urdu (same casual style), not formal textbook English.]\n";
+        return "[LANGUAGE: User wrote **Roman Urdu** — reply ONLY in Roman Urdu. No English unless requested.]\n";
     }
     if (hasLatin && !hasArabicScript) {
-        return "[LANGUAGE: User wrote in English — reply in **high-level native English** (natural, fluent, can use casual native shortcuts like ngl/tbh/fr/lowkey when tone fits). Not stiff textbook English.]\n";
+        return "[LANGUAGE: User wrote in English — reply ONLY in English. Do not use any Urdu/Hindi words unless asked.]\n";
     }
     if (hasLatin && hasArabicScript) {
-        return "[LANGUAGE: User mixed Roman + Urdu/Arabic script — mirror their mix.]\n";
+        return "[LANGUAGE: User mixed Roman + Urdu/Arabic script — mirror their exact mix.]\n";
     }
-    return "[LANGUAGE: Match the user's language in their latest message.]\n";
+    return "[LANGUAGE: Match the user's language exactly. No mixing unless they mixed it first.]\n";
 }
 
 // Initialization: Load muted users from disk
@@ -178,20 +178,22 @@ async function getOrInitMemory(senderJid, userName) {
         role: "system",
         content:
             "Your name is Mazhar (DevX), a high-level Lead Developer and AI Architect. Your communication must be **EXTREMELY BRIEF**, punchy, and ultra-professional.\n\n" +
-            "⚡ BREVITY MANDATE (STRICT):\n" +
-            "- **MAX 2 SENTENCES** per reply. Never more. Focus on the **'Mutlab' (gist)** immediately.\n" +
+            "⚡ LENGTH MANDATE:\n" +
+            "- Keep your answers **SHORT** by default. Only give long answers if the situation strictly demands it or the user explicitly asks for a detailed explanation.\n" +
             "- No robotic filler, no 'How can I help', no 'Understood'. Just the core answer.\n\n" +
             "👤 ADDRESSING THE USER:\n" +
-            "- Identified **Female** -> **'Sister'** or **Name**.\n" +
-            "- Identified **Male** -> **'Brother'**, **'Sir'**, or **Name**.\n" +
-            "- Professional queries -> Always **'Sir'** or **'Madam'**.\n" +
-            "- **STRICT RULE**: Never place titles or names in brackets like [Sister] or [Sir]. Use them naturally in the text.\n\n" +
+            "- The user's name is **" + displayName + "**.\n" +
+            "- **STRICT RULE**: NEVER use terms like 'bro', 'sis', 'sister', 'brother', 'sir', or 'madam'.\n" +
+            "- Call the user by their actual name occasionally, or just talk naturally without a name.\n\n" +
+            "🗣️ LANGUAGE RULE:\n" +
+            "- MIRROR THE USER'S LANGUAGE EXACTLY. If they text in Urdu/Roman Urdu, you MUST reply ONLY in Urdu/Roman Urdu. If they text in English, you MUST reply ONLY in English. Do not mix languages unless they mixed it first.\n\n" +
             "💬 COMMUNICATION STYLE:\n" +
             "- **High-Status**: Talk like an executive who doesn't have time to waste. Use sophisticated, direct language.\n" +
             "- **Reaction Mandatory**: You **MUST** include `[REACTION: emoji]` in EVERY reply. Choose an emoji that matches your mood or the user's vibe.\n" +
             "- **Urdu/Roman Urdu**: Keep it clean and 'Tehzeeb-mafal'. No street slang.\n\n" +
             "🧠 MEDIA & TOOLS:\n" +
-            "- When asked for an image, **ALWAYS** lead with `[IMG_SEARCH: specific prompt]`. Use AI-generation prompts.\n" +
+            "- When asked for an image, or when the user wants to see something (e.g. \"sand me pic\", \"cat ki photo\", \"Imran Khan bnao\"), **ALWAYS** lead with `[IMG_SEARCH: specific AI artistic prompt]`. \n" +
+            "- Be proactive: if they ask to \"see\" anything, emit the tag. Use detailed descriptive prompts for better AI art.\n" +
             "- Use `[GIF: category]` sparingly but appropriately for professional impact.\n\n" +
             "🚫 PROHIBITIONS:\n" +
             "- NEVER mention being an AI. You are Mazhar.\n" +
@@ -323,7 +325,7 @@ function scorePersonaReply(text) {
     else score -= 20;
 
     // 2. Persona Match (Urdu/Hindi slang and casual tone)
-    const eliteSlang = ["jani", "yaar", "han", "bhai", "behen", "sis", "bro", "acha", "theek", "scene", "set", "tension", "load"];
+    const eliteSlang = ["jani", "yaar", "han", "acha", "theek", "scene", "set", "tension", "load"];
     eliteSlang.forEach(s => { if (lower.includes(s)) score += 5; });
 
     // 3. Robotic Penalty (Double-check even after washer)
@@ -345,14 +347,7 @@ async function performDeepAnalysis(senderJid, displayName = "User") {
         const allText = recent.map((h) => (h.content || "").toLowerCase()).join(" ");
         let analysis = "";
 
-        const gName = inferGenderFromName(displayName);
-        if (gName === "female" || gName === "female_likely") {
-            analysis += `User is identified as **Female** → address as **Sister** or by **Name**. `;
-        } else if (gName === "male" || gName === "male_likely") {
-            analysis += `User is identified as **Male** → address as **Brother**, **Sir**, or by **Name**. `;
-        } else {
-            analysis += `User gender is **unspecified** → use **Sir/Madam** or their **Name**; remain ultra-professional. `;
-        }
+        analysis += `User's Name is **${displayName}**. Call them by their name or talk normally without a name. DO NOT call them bro, sis, brother, sister, sir, or madam. `;
 
         const commonStopWords = new Set([
             "i", "me", "my", "you", "your", "the", "a", "is", "of", "to", "and", "hi", "hey", "hello", "han", "ach",
@@ -368,8 +363,8 @@ async function performDeepAnalysis(senderJid, displayName = "User") {
             .slice(0, 6);
         if (topInterests.length > 0) analysis += `Topics they bring up: ${topInterests.join(", ")}. `;
 
-        const femaleKeywords = ["sister", "sis", "behen", "baji", "girl", "she ", "her ", "ladki"];
-        const maleKeywords = ["brother", "bhai", "paji", "boy", "he ", "his ", "ladka"];
+        const femaleKeywords = ["girl", "she ", "her ", "ladki"];
+        const maleKeywords = ["boy", "he ", "his ", "ladka"];
         const fScore = femaleKeywords.filter((k) => allText.includes(k)).length;
         const mScore = maleKeywords.filter((k) => allText.includes(k)).length;
         if (fScore > mScore + 1 && fScore > 0) analysis += "Chat hints **she/her** — align tone gently. ";
@@ -497,9 +492,9 @@ async function pickImageBufferForGroqVision(mediaBuffer, mediaType, mediaThumbna
 }
 
 const VISION_MAZHAR_INSTRUCTION =
-    "You are Mazhar (DevX) on WhatsApp. Describe what you see in 2–4 short lines max. " +
-    "Sound human: mix Urdu/Hindi + English slang (yaar, bhai, scene, lit). " +
-    "Never say you are an AI, bot, or model. No 'How can I assist'. Answer the user's question if they asked one.";
+    "You are Mazhar (DevX) on WhatsApp. The user has sent an image/media. " +
+    "CRITICAL RULE: DO NOT describe what is in the image back to the user like an AI. Perceive the image internally, think deeply about its context, and just give a natural human REACTION. " +
+    "If it's funny, laugh. If they asked a question about it, just answer it. Never describe it pointlessly.";
 
 async function groqVisionDescribe(userMessage, imageJpegBuffer, groqKey, errorsList, mediaHint) {
     const jpeg = imageJpegBuffer;
@@ -511,7 +506,7 @@ async function groqVisionDescribe(userMessage, imageJpegBuffer, groqKey, errorsL
         {
             role: "user",
             content: [
-                { type: "text", text: (userMessage || "Kya scene hai is mein? Seedha bata.") + hint },
+                { type: "text", text: (userMessage || "Here is an image. React to it casually based on context, do not describe what it is.") + hint },
                 { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Media}` } }
             ]
         }
@@ -612,7 +607,7 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errors
     const models = mediaBuffer ? GEMINI_MULTIMODAL_MODELS : ["gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro-latest", "gemini-1.5-flash", "gemini-1.5-pro"];
 
     const currentParts = [];
-    const um = userMessage || "Kya scene hai? Mazhar ki tarah short, human jawab.";
+    const um = userMessage || "Here is some media. Process it deeply but don't describe it pointlessly. Just react as a human friend would. Use my language strictly.";
     currentParts.push({ text: um });
 
     if (mediaBuffer) {
@@ -637,7 +632,7 @@ async function geminiAiReply(userMessage, memory, mediaBuffer, mediaType, errors
     const contents = [{ role: "user", parts: [{text: contextStr}, ...currentParts] }];
 
     const mediaDetailNote = mediaBuffer
-        ? " If the user sent a photo/video/GIF/sticker, you may use up to 4 short lines to describe what you see — still Mazhar's casual voice, no robot talk."
+        ? " IMPORTANT: The user just sent media (photo/.../GIF). DO NOT provide a robotic description of the image. Just perceive the image internally and react naturally. For example, if it's a funny meme, laugh; if they ask a question about it, answer directly. Think deeply about the context and give a human reaction."
         : "";
 
     const body = { 
